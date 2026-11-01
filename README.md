@@ -29,6 +29,8 @@ Use the ChatGPT subscription you already pay for, or any API key your Hermes pro
   (OpenAI, Grok, Krea, DeepInfra, OpenRouter) from one form, with each model's
   real limits applied (references, sizes, seeds). FAL's whole public catalog
   is listed and kept up to date, so new FAL models appear without an update.
+- **Reserve space for text**: mark the areas of the image to keep clear for a
+  title or price.
 - **Compose** from reference images: the active Hermes model reads them and
   plans the shot before you pay for a generation.
 - **Edit**: instruction edits with any FAL edit model or with GPT Image on your
