@@ -1,0 +1,28 @@
+{
+  "$schema": "https://unpkg.com/knip@6.39.0/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "frontend/standalone.ts",
+        "frontend/standalone.css",
+        "frontend/**/*.test.tsx",
+        "scripts/build_plugin.mjs",
+        "scripts/knip.mjs"
+      ],
+      "project": [
+        "scripts/**/*.{js,cjs,mjs,jsx,ts,tsx}",
+        "frontend/**/*.{js,cjs,mjs,jsx,ts,tsx,css}",
+        "!**/node_modules/**",
+        "!**/dist/**",
+        "!**/build/**"
+      ],
+      "ignoreDependencies": [
+        "@hermes/plugin-sdk",
+        "react",
+        "vitest",
+        "@testing-library/react",
+        "imagegen"
+      ]
+    }
+  }
+}

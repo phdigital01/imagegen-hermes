@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build the package
+        run: |
+          npm --prefix scripts ci
+          npm --prefix scripts run build
+      - name: Committed artifacts match the source
+        run: git diff --exit-code
+      - name: Workspace check
+        run: python scripts/verify_workspace.py
+      - name: Backend tests
+        working-directory: backend
+        run: |
+          pip install pytest pyyaml fastapi httpx pillow
+          python -m pytest -q tests ../tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Types and tests inside Hermes Desktop
+        run: python scripts/check_frontend.py

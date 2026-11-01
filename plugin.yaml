@@ -1,0 +1,35 @@
+# Generated from backend/plugin.yaml by npm run build.
+name: imagegen
+manifest_version: 1
+version: 1.3.0
+description: >-
+  ImageGen — image generation across every Hermes provider (FAL, OpenAI, Grok,
+  Krea, DeepInfra, OpenRouter, Nous Portal, Magnific, Vertex AI) with a professional prompt
+  builder, reference-driven composition, editing, and a unified gallery.
+author: "Paulo Henrique Tavares"
+kind: standalone
+requires_hermes: ">=0.22.5"
+# No `requires_env`: every provider key is optional (Nous Portal and the host
+# providers need none), so the plugin loads without them. Keys are edited in
+# Settings -> Plugins -> ImageGen and read with agent.secret_scope.get_secret.
+config_schema:
+  fal_key:
+    type: secret
+    env: FAL_KEY
+    label: FAL API key
+    description: Optional. Enables FAL models without a Nous Portal subscription. Each generation is billed to this key.
+  magnific_api_key:
+    type: secret
+    env: MAGNIFIC_API_KEY
+    label: Magnific API key
+    description: Optional. Enables Magnific upscale, relight and background removal. Each call is billed to this key.
+  vertex_api_key:
+    type: secret
+    env: VERTEX_API_KEY
+    label: Vertex AI API key
+    description: Optional. Enables Gemini image models (Nano Banana) on Google Cloud Vertex AI. Each generation is billed to the key's project.
+  vertex_project:
+    type: secret
+    env: VERTEX_PROJECT
+    label: Vertex AI project ID
+    description: Optional. The Google Cloud project for a key bound to a service account. Leave empty for an express-mode key.

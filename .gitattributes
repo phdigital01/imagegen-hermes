@@ -1,0 +1,8 @@
+# Keep committed release artifacts byte-identical across Windows and Unix clones.
+desktop/* text eol=lf
+package*.json text eol=lf
+plugin.yaml text eol=lf
+__init__.py text eol=lf
+dashboard/* text eol=lf
+scripts/build_plugin.mjs text eol=lf
+frontend/standalone.* text eol=lf

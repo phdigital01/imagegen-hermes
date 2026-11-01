@@ -1,0 +1,20 @@
+{
+  "name": "imagegen-hermes",
+  "version": "1.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Installable ImageGen package for Hermes Desktop",
+  "scripts": {
+    "build": "node build_plugin.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@tailwindcss/node": "4.3.3",
+    "@tailwindcss/oxide": "4.3.3",
+    "esbuild": "0.28.1",
+    "postcss": "8.5.6",
+    "tailwindcss": "4.3.3"
+  }
+}

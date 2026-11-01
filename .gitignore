@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-tmp/
+.pytest-basetemp/
+
+# Runtime-owned data and local settings
+data/
+.desktop-user-data/
+.desktop-user-data-qa/
+.hermes-home/
+.qa-runtime/
+.snapshots/
+.removed-plugins/
+*.log
+*.env
+.env
+
+# JavaScript
+node_modules/
+dist/
+release/
+
+# Local tool indexes
+.codegraph/
+
+# Operating system
+.DS_Store
+Thumbs.db
+.venv-test/
