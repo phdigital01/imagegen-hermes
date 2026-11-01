@@ -2,15 +2,21 @@
 
 ![ImageGen](docs/catalog/banner.png)
 
-An image studio inside Hermes Desktop. Use the ChatGPT subscription you already
-pay for, or any API key your Hermes profile has.
+One studio for all your image models, inside Hermes Desktop. Generate, edit, relight,
+restyle, cut out and run campaigns from one place, and keep every result in one gallery.
+Use the ChatGPT subscription you already pay for, or any API key your Hermes profile has.
 
+- **All your models in one form.** GPT Image on your subscription, FAL, Nous Portal,
+  Magnific, Vertex AI and the Hermes image providers. The form applies each model's real
+  limits, and Settings says what each provider can do.
+- **Direct with pictures, not jargon.** Style, light, angle, framing and camera are
+  a board of images. Each option shows the same scene with that one change.
 - **Edit without losing quality.** Models redraw the whole picture on every edit,
   so an image gets softer each round. ImageGen puts back only the area that changed.
   The rest stays identical, pixel for pixel, after any number of edits. When you
   change the whole picture, it keeps the model's answer and tells you.
-- **Direct with pictures, not jargon.** Style, light, angle, framing and camera are
-  a board of images. Each option shows the same scene with that one change.
+- **Campaigns and a gallery.** One product across several scenes in one batch. Every
+  result keeps its prompt, model and settings, ready to reuse.
 - **Works from any coding agent.** Claude Code, Codex or anything with a terminal can
   [generate a hundred images in one command](#use-it-from-coding-agents), and they land
   in the same gallery as yours.

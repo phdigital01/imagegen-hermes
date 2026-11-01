@@ -14,7 +14,7 @@ composition, editing, campaign grids, a gallery with reusable recipes and a
 local monthly budget. The UI follows the Hermes app language (en, pt, es, zh).
 
 - Repo: https://github.com/phdigital01/imagegen-hermes
-- Pinned SHA: `<public-sha>`
+- Pinned SHA: `747bc6f3e6d3b6840e13c0752088119a5447a2f5`
 - Version: 1.3.0, `requires_hermes: ">=0.22.5"`
 - Surfaces: Desktop UI (`desktop/plugin.js`, SDK only) and a dashboard REST
   router (`dashboard/plugin_api.py`). One `image_gen` provider (`ctx.register_image_gen_provider`),
@@ -71,20 +71,20 @@ local monthly budget. The UI follows the Hermes app language (en, pt, es, zh).
   (manifest, `requires_hermes`, config schema, loadable entries, capability
   probe, security scan, no core override, desktop surface). One warning: the
   private imports above.
-- Installed from `file://` into a throwaway `HERMES_HOME`: 71 routes mount
-  under `/api/plugins/imagegen/`, `register(ctx)` binds `ctx.llm`, and both
-  auxiliary slots route.
+- Installed from this public repository at the pinned commit into a throwaway
+  `HERMES_HOME`: `hermes plugins install phdigital01/imagegen-hermes --enable`
+  succeeds and `hermes plugins list` shows it enabled at 1.3.0.
 - Installed from Git into an isolated Hermes Desktop 0.22.5 (sandbox
   `HERMES_HOME`, mock model): after the Desktop UI toggle the ImageGen page
   loads, every tab renders and the gallery shows images generated through it.
   The screenshots below come from that run. The images were generated through the
   plugin on a real account and replayed in the sandbox, which holds no login.
-- Backend suite: <update on the day>.
+- Backend suite on Windows 11: 170 passed, 2 skipped.
 
 ## Screenshots
 
-![Banner](https://raw.githubusercontent.com/phdigital01/imagegen-hermes/<public-sha>/docs/catalog/banner.png)
+![Banner](https://raw.githubusercontent.com/phdigital01/imagegen-hermes/747bc6f3e6d3b6840e13c0752088119a5447a2f5/docs/catalog/banner.png)
 
-![Generate](https://raw.githubusercontent.com/phdigital01/imagegen-hermes/<public-sha>/docs/catalog/screenshots/generate.png)
-![Edit](https://raw.githubusercontent.com/phdigital01/imagegen-hermes/<public-sha>/docs/catalog/edit-demo.gif)
-![Gallery](https://raw.githubusercontent.com/phdigital01/imagegen-hermes/<public-sha>/docs/catalog/screenshots/gallery-detail.png)
+![Generate](https://raw.githubusercontent.com/phdigital01/imagegen-hermes/747bc6f3e6d3b6840e13c0752088119a5447a2f5/docs/catalog/screenshots/generate.png)
+![Edit](https://raw.githubusercontent.com/phdigital01/imagegen-hermes/747bc6f3e6d3b6840e13c0752088119a5447a2f5/docs/catalog/edit-demo.gif)
+![Gallery](https://raw.githubusercontent.com/phdigital01/imagegen-hermes/747bc6f3e6d3b6840e13c0752088119a5447a2f5/docs/catalog/screenshots/gallery-detail.png)
