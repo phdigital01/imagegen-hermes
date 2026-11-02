@@ -8,10 +8,10 @@ from typing import Any, Dict
 
 from fastapi import Body, HTTPException, Request
 
-from dashboard import gen_service, llm_service
-from dashboard.api_core import _abs_images, _imagegen_error_http, _to_thread, coerce_body, make_router
-from dashboard.errors import ImageGenError
-from dashboard.generation_artifacts import (
+from imagegen_engine import gen_service, llm_service
+from imagegen_engine.api_core import _abs_images, _imagegen_error_http, _to_thread, coerce_body, make_router
+from imagegen_engine.errors import ImageGenError
+from imagegen_engine.generation_artifacts import (
     parse_num_images,
     save_generation_artifacts,
 )
@@ -63,8 +63,8 @@ async def generate(request: Request, body: Any = Body(None)) -> Dict[str, Any]:
 
 
 def _submit_operation(kind: str, body: Any) -> Dict[str, Any]:
-    from dashboard import jobs
-    from dashboard.operations import build_operation
+    from imagegen_engine import jobs
+    from imagegen_engine.operations import build_operation
 
     payload = {**coerce_body(body), "kind": kind}
     return jobs.manager.submit(kind, build_operation(kind, payload), payload=payload).to_dict()
@@ -113,7 +113,7 @@ async def enhance_skin(body: Any = Body(None)) -> Dict[str, Any]:
 @router.post("/prompt-helper")
 async def prompt_helper(body: Any = Body(None)) -> Dict[str, Any]:
     """Magnific prompt helpers: describe an image, or improve a written prompt."""
-    from dashboard import magnific_api
+    from imagegen_engine import magnific_api
 
     payload = coerce_body(body)
     kind = payload.get("action")
@@ -153,7 +153,7 @@ async def magnific_call(body: Any = Body(None)) -> Dict[str, Any]:
 async def batch_matrix(body: Any = Body(None)) -> Dict[str, Any]:
     """D-MASS — Creative matrix: fixed object × environments × text zones → grid."""
     body = coerce_body(body)
-    from dashboard import jobs
+    from imagegen_engine import jobs
 
     image = body.get("image", "")
     scenes = body.get("scenes", [])

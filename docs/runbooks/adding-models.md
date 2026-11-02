@@ -2,7 +2,7 @@
 
 This document tells you exactly where to add a new image model and what
 each layer does. Model data is pinned in code, with one exception: FAL's
-public catalog (`backend/dashboard/fal_catalog.py`) is read at runtime, so
+public catalog (`backend/imagegen_engine/fal_catalog.py`) is read at runtime, so
 every active FAL text-to-image and image-to-image model appears without a
 code change.
 
@@ -34,11 +34,11 @@ code change.
 frontend ModelCatalogModal          GET /providers          GET /providers/status
         |                                  |                        |
         v                                  v                        v
-providers_catalog._list_providers()  ->  agent.image_gen_registry   (bundled plugins:
-        |                            + FAL_MODELS (host)        openai, xai, krea,
-        v                            + Magnific (API)           openrouter, ...)
-  one entry per provider:            + Vertex AI (API)
-  { name, display_name,              + Nous Portal (Tool Gateway)   <-- docs here
+providers_catalog._list_providers()  ->  agent.image_gen_registry   (filled by Hermes's own
+        |                            + FAL_MODELS (host)        plugin discovery: openai,
+        v                            + Magnific (API)           xai, krea, openrouter,
+  one entry per provider:            + Vertex AI (API)          nous, fal, ...)
+  { name, display_name,
     available, models[] }
 ```
 
@@ -49,65 +49,42 @@ POST /generate | /jobs/submit --> gen_service.generate_text_to_image(provider, m
     dispatch goes through gen_service._PROVIDER_BACKENDS (one entry per
     provider family); anything not in that registry falls back to the
     registered-provider / FAL path.
-    provider == "nous"         --> model in PORTAL_CATALOG? --> nous_portal.submit (Tool Gateway)
-                                    else --> registered "nous" provider (OpenRouter-backed,
-                                             reference-grounded, Nous Portal auth)
-    provider == "fal"          --> FAL_MODELS catalog --> fal_submit_sync / fal_queue_poll
-    provider == other registry --> agent.image_gen_registry.get_provider(...)
-    provider == "magnific"     --> direct Magnific API (magnific_catalog.py)
-    provider == "vertex"       --> direct Vertex AI API (vertex_api.py)
+    provider == "fal" + FAL_KEY --> FAL_MODELS catalog --> fal_submit_sync / fal_queue_poll
+    provider == "fal", no key   --> Hermes's registered "fal" provider (managed
+                                    gateway for a Nous subscription; model set in Hermes)
+    provider == other registry  --> agent.image_gen_registry.get_provider(...)
+                                    (includes "nous": OpenRouter-backed, Portal auth)
+    provider == "magnific"      --> direct Magnific API (magnific_catalog.py)
+    provider == "vertex"        --> direct Vertex AI API (vertex_api.py)
 ```
 
-Note: the Hermes host already registers a `nous` provider (see
-`hermes-agent/plugins/image_gen/openrouter/__init__.py` — the
-reference-grounded OpenRouter-backed path). The plugin MERGES the pinned
-Tool Gateway catalog into that entry (`_merge_nous_portal_entry`); it never
-adds a second `nous` row.
+The plugin never loads or registers Hermes's image providers itself:
+`providers_catalog._ensure_providers_registered()` runs
+`hermes_cli.plugins.discover_plugins()` once and then only reads
+`agent.image_gen_registry`.
 
 ## Where to add a model — by case
 
-### Case A: new Nous Portal model (most common after a Portal changelog)
+### Case A: new Nous subscription model
 
-1. Verify the FAL queue endpoint exists (no auth needed; HTTP 405 on GET
-   means the route is real):
+Nothing to add here. A Nous subscription reaches models in two ways, both
+owned by Hermes:
 
-   ```bash
-   curl -s -o /dev/null -w "%{http_code}\n" \
-     "https://queue.fal.run/fal-ai/<vendor>/<model>/text-to-image/openapi.json"
-   ```
+- the registered `nous` provider (OpenRouter-backed, reference-grounded),
+  which lists its own models;
+- FAL text-to-image through Hermes's `fal` provider when no `FAL_KEY` is
+  set. Hermes picks the model from its own config, routes through its
+  managed gateway, and handles entitlement and billing.
 
-2. Add one entry to `PORTAL_CATALOG` in
-   `backend/dashboard/nous_portal.py`:
+Queue resume and reference uploads need a `FAL_KEY`; without one the plugin
+returns a clear `PROVIDER_UNAVAILABLE` error instead of calling the managed
+gateway's private client.
 
-   ```python
-   {
-       "id": "fal-ai/<vendor>/<model>/text-to-image",   # exact queue endpoint
-       "display": "Human readable name",
-       "speed": "~6s",
-       "price": "portal credits",
-       "strengths": "One line shown in the catalog",
-       "capabilities": {
-           "maxReferences": 0,          # >0 only if the endpoint edits
-           "edit": False,
-           "negativeMode": "separate",  # separate | inline | omit | unsupported
-           "resolutions": [],           # optional, e.g. ["1K", "2K"]
-       },
-       # optional: "extra_args": {...} merged into every request payload
-   },
-   ```
-
-3. If the model belongs to a new family, add a match token in
-   `_FAMILY_PROFILES` (`backend/dashboard/model_profiles.py`) so prompt
-   optimization picks the right dialect. Existing matches: `seedream`,
-   `ideogram`, `qwen`/`alibaba`, `nano-banana`/`mai-image`, `recraft`,
-   `flux`, `grok`, `gpt-image`.
-
-4. Restart the Desktop app (backend is loaded at boot). The model shows up
-   in the provider selector under "Nous Portal".
-
-Nothing else is required: routing, entitlement errors, and billing gates
-are handled by the host's managed gateway code
-(`tools/image_generation_tool._submit_fal_request`).
+If a new model belongs to a new family, add a match token in
+`_FAMILY_PROFILES` (`backend/imagegen_engine/model_profiles.py`) so prompt
+optimization picks the right dialect. Existing matches: `seedream`,
+`ideogram`, `qwen`/`alibaba`, `nano-banana`/`mai-image`, `recraft`,
+`flux`, `grok`, `gpt-image`.
 
 ### Case B: new FAL direct model (BYO FAL_KEY)
 
@@ -126,21 +103,21 @@ in the installed Hermes checkout — not from this repo. Options:
 
 1. Add a bundled Hermes plugin under `hermes-agent/plugins/image_gen/<name>/`
    exposing `register(ctx)` + a provider object (`name`, `is_available`,
-   `list_models`, `generate`). The plugin auto-registers it via
-   `_ensure_providers_registered()`.
+   `list_models`, `generate`). Hermes's plugin discovery registers it; the
+   ImageGen plugin only reads the registry.
 2. `gen_service.generate_text_to_image` already routes any provider outside
    `_PROVIDER_BACKENDS` through `agent.image_gen_registry.get_provider`.
    Add an entry to `_PROVIDER_BACKENDS` only for a provider that needs its
    own transport (see the registry docstring for the required signature).
 3. If the provider needs a stored key, extend `/providers/configure` in
-   `backend/dashboard/routes/system.py` (currently `fal` and `magnific` persist keys).
+   `backend/imagegen_engine/routes/system.py` (currently `fal` and `magnific` persist keys).
 
 ## What you must NOT change
 
 - Do not add navigation tabs or agency surfaces (scope lock).
 - Do not commit `data/`, `.env`, or generated images.
 - Keep capability keys exactly as in `capabilities_for_model`
-  (`backend/dashboard/model_profiles.py`): `maxReferences`, `edit`,
+  (`backend/imagegen_engine/model_profiles.py`): `maxReferences`, `edit`,
   `inpaint`, `outpaint`, `bg`, `upscale`, `animate`, `negativeMode`,
   `strengthTags`, `resolutions`. Unknown keys are dropped silently.
 

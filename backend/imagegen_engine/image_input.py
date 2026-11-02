@@ -42,7 +42,15 @@ _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def hermes_home() -> Path:
-    """Resolve HERMES_HOME with the same default as the host (Windows-aware)."""
+    """The active profile's Hermes home, asked of the host on every call."""
+    try:
+        from hermes_constants import get_hermes_home
+    except ModuleNotFoundError as exc:
+        if exc.name != "hermes_constants":
+            raise
+    else:
+        return get_hermes_home()
+    # Outside Hermes (source tooling): the host's own default.
     env = os.environ.get("HERMES_HOME", "").strip()
     if env:
         return Path(env)
@@ -54,9 +62,9 @@ def hermes_home() -> Path:
 
 def allowed_image_roots() -> Tuple[Path, ...]:
     """Roots where local image paths are accepted (anti-exfiltration)."""
-    from dashboard import store
+    from imagegen_engine import store
 
-    roots = [store.DATA_DIR.resolve()]
+    roots = [store.data_dir().resolve()]
     # Hermes providers save their output in cache/generated/images; older hosts used cache/images.
     roots.extend((hermes_home() / "cache" / sub).resolve() for sub in ("generated/images", "images"))
     return tuple(roots)
@@ -76,7 +84,7 @@ def resolve_served_image(value: str) -> str:
     Returned paths still pass the normal containment and image validation.
     A public URL with a similar path remains a public URL.
     """
-    from dashboard import store
+    from imagegen_engine import store
 
     value = str(value or "").strip()
     parsed = urllib.parse.urlsplit(value)
@@ -90,7 +98,7 @@ def resolve_served_image(value: str) -> str:
     if tail.startswith("cache/"):
         local = urllib.parse.parse_qs(parsed.query).get("p", [""])[0]
         return local or value
-    for route, root in (("refs/", store.REFS_DIR), ("gallery/file/", store.GALLERY_DIR), ("objects/file/", store.OBJECTS_DIR)):
+    for route, root in (("refs/", store.refs_dir()), ("gallery/file/", store.gallery_dir()), ("objects/file/", store.objects_dir())):
         if tail.startswith(route):
             name = tail[len(route):]
             if not is_safe_id(name):

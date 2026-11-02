@@ -16,6 +16,7 @@ SOURCE = REPOSITORY_ROOT / "backend"
 DEFAULT_HERMES_HOME = Path.home() / "AppData" / "Local" / "hermes"
 IGNORED = shutil.ignore_patterns("data", "__pycache__", ".pytest_cache", ".pytest-tmp", ".pytest-basetemp", "*.pyc", "*.env")
 ROOT_FILES = (".gitignore", "__init__.py", "imagegen_cli.py", "mcp_server.py", "plugin.yaml")
+PACKAGE_DIRS = ("imagegen_engine", "dashboard")
 
 
 def copy_source(source: Path, target: Path) -> None:
@@ -23,10 +24,14 @@ def copy_source(source: Path, target: Path) -> None:
         source_file = source / name
         if source_file.exists():
             shutil.copy2(source_file, target / name)
-    dashboard = target / "dashboard"
-    if dashboard.exists():
-        shutil.rmtree(dashboard)
-    shutil.copytree(source / "dashboard", dashboard, ignore=IGNORED)
+    # The engine package and the Hermes dashboard entry; a rollback snapshot of
+    # an older layout carries only dashboard/, so drop both before copying.
+    for name in PACKAGE_DIRS:
+        destination = target / name
+        if destination.exists():
+            shutil.rmtree(destination)
+        if (source / name).is_dir():
+            shutil.copytree(source / name, destination, ignore=IGNORED)
 
 
 def snapshot(target: Path) -> Path:

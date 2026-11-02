@@ -5,10 +5,10 @@ from typing import Any, Dict, List
 
 from fastapi import Body, HTTPException, Query
 
-from dashboard import gen_service, store
-from dashboard.api_core import _imagegen_error_http, _to_thread, coerce_body, make_router
-from dashboard.errors import ImageGenError
-from dashboard.providers_catalog import _list_providers
+from imagegen_engine import gen_service, store
+from imagegen_engine.api_core import _imagegen_error_http, _to_thread, coerce_body, make_router
+from imagegen_engine.errors import ImageGenError
+from imagegen_engine.providers_catalog import _list_providers
 
 router = make_router()
 
@@ -31,7 +31,7 @@ async def providers() -> Dict[str, Any]:
 @router.get("/providers/fal/model")
 async def fal_model(id: str = Query("", max_length=200)) -> Dict[str, Any]:
     """Exact controls of one model from FAL's catalog, read from its input schema."""
-    from dashboard import fal_catalog
+    from imagegen_engine import fal_catalog
 
     if not gen_service._MODEL_ID_RE.match(id) or not fal_catalog.knows(id):
         raise HTTPException(status_code=404, detail="unknown FAL catalog model")
@@ -52,7 +52,7 @@ async def providers_status() -> Dict[str, Any]:
         name = p.get("name")
         configured: bool = False
         if name == "fal":
-            configured = bool(gen_service._fal_key()) or gen_service._managed_gateway_active()
+            configured = bool(gen_service._fal_key()) or bool(p.get("available", False))
         elif name == "magnific":
             configured = bool(gen_service._magnific_available())
         else:
@@ -71,17 +71,13 @@ async def providers_test(body: Any = Body(None)) -> Dict[str, Any]:
     body = coerce_body(body)
     """Lightweight connectivity check for a provider (never returns the key)."""
     provider = str(body.get("provider", "")).strip()
-    if provider == "fal":
-        if gen_service._fal_key():
-            return {"ok": True, "provider": provider}
-        if gen_service._managed_gateway_active():
-            return {"ok": True, "provider": provider, "via": "nous_tool_gateway"}
-        return {"ok": False, "error": "not_configured"}
-    if provider == "nous":
-        from dashboard import nous_portal
-
-        if nous_portal.nous_portal_available():
-            return {"ok": True, "provider": provider}
+    if provider == "fal" and gen_service._fal_key():
+        return {"ok": True, "provider": provider}
+    if provider in ("fal", "nous"):
+        # Without a direct key, both run through the providers Hermes registered.
+        registered = next((p for p in _list_providers() if p.get("name") == provider), None)
+        if registered and registered.get("available"):
+            return {"ok": True, "provider": provider, "via": "hermes"}
         return {"ok": False, "error": "not_configured"}
     raise HTTPException(status_code=400, detail="unsupported provider")
 

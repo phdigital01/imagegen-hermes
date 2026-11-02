@@ -24,10 +24,10 @@ import time
 import uuid
 from typing import Any, Callable, Dict, Optional
 
-from dashboard import store
-from dashboard.events import announce
-from dashboard.errors import ImageGenError, JOB_INTERRUPTED
-from dashboard.gen_service import JobCancelledError
+from imagegen_engine import store
+from imagegen_engine.events import announce
+from imagegen_engine.errors import ImageGenError, JOB_INTERRUPTED
+from imagegen_engine.gen_service import JobCancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +149,7 @@ class Job:
         if self.remote:
             d["remote"] = dict(self.remote)
         d["recoverable"] = any(not item.get("saved") for item in self.remotes)
-        from dashboard.operations import RETRY_KINDS
+        from imagegen_engine.operations import RETRY_KINDS
         d["retryable"] = self.status == "failed" and self.kind in RETRY_KINDS and self.payload is not None and not d["recoverable"]
         d["hasPartialResult"] = self.result is not None
         if include_result and self.result is not None:
@@ -240,7 +240,7 @@ class JobManager:
         job = Job(kind)
         job.payload = deepcopy(payload)
         job.client_request_id = str((payload or {}).get("clientRequestId") or "")
-        with self._lock, store._file_lock(store.JOBS_FILE):
+        with self._lock, store._file_lock(store.jobs_file()):
             if job.client_request_id:
                 for record in store.load_job_records():
                     if record.get("clientRequestId") == job.client_request_id:
@@ -327,7 +327,7 @@ class JobManager:
         if job is None or job.status not in ("queued", "running"):
             return False
         job.cancel()
-        with store._file_lock(store.JOBS_FILE):
+        with store._file_lock(store.jobs_file()):
             record = store.get_job_record(job_id)
             if record:
                 record["cancelRequested"] = True
@@ -349,7 +349,7 @@ class JobManager:
         job = self.get(job_id)
         if job is None or job.status not in ("interrupted", "failed", "cancelled") or not any(not item.get("saved") for item in job.remotes):
             return None
-        with store._file_lock(store.JOBS_FILE):
+        with store._file_lock(store.jobs_file()):
             current = store.get_job_record(job_id)
             if not current or current.get("status") not in ("interrupted", "failed", "cancelled"):
                 return None

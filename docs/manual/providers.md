@@ -83,7 +83,7 @@ Generation, editing, masked filling, expansion, background removal, and
 upscaling run as jobs. Editing routes return a job ID; read
 `GET /jobs/{id}/result` for the `{result: {...}}` envelope. Available partial
 results remain readable after failure or cancellation. Recovery retrieves
-existing FAL, Nous gateway, or Magnific requests; it does not generate missing
+existing FAL (with a `FAL_KEY`) or Magnific requests; it does not generate missing
 images. An explicit paid retry is a separate action. Campaign retries must
 be started from the campaign screen.
 

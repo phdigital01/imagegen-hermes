@@ -125,6 +125,7 @@ await writeFile(path.join(root, 'plugin.yaml'), '# Generated from backend/plugin
 await writeFile(path.join(root, '__init__.py'), '# Generated from backend/__init__.py by npm run build.\n' + await readText(path.join(root, 'backend/__init__.py')))
 await mkdir(path.join(root, 'dashboard'), { recursive: true })
 await writeFile(path.join(root, 'dashboard/manifest.json'), dashboardManifest)
+await writeFile(path.join(root, 'dashboard/plugin_api.py'), '# Generated from backend/dashboard/plugin_api.py by npm run build.\n' + await readText(path.join(root, 'backend/dashboard/plugin_api.py')))
 await writeFile(path.join(output, 'build.json'), JSON.stringify({
   version,
   sha256: createHash('sha256').update(bundle).digest('hex'),

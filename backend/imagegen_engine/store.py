@@ -1,6 +1,7 @@
 """Local persistence for ImageGen: history, gallery, and prompt library.
 
-Everything lives in the active profile's plugin-data/imagegen/ directory.
+Everything lives in the active profile's plugin-data/imagegen/ directory,
+resolved on every call (``data_dir``).
 """
 from __future__ import annotations
 
@@ -22,30 +23,10 @@ from typing import Any, Dict, Iterable, List, Optional
 
 logger = logging.getLogger(__name__)
 
-from dashboard import image_input
-from dashboard.errors import JOB_INTERRUPTED, ImageGenError, BUDGET_EXCEEDED
-from dashboard.file_lock import ProcessRLock, process_alive
+from imagegen_engine import image_input
+from imagegen_engine.errors import JOB_INTERRUPTED, ImageGenError, BUDGET_EXCEEDED
+from imagegen_engine.file_lock import ProcessRLock, process_alive
 
-try:
-    from plugins.plugin_storage import plugin_data_dir
-except ModuleNotFoundError as exc:
-    if exc.name not in {"plugins", "plugins.plugin_storage"}:
-        raise
-    # Older hosts and source-only tooling still keep data outside the install tree.
-    DATA_DIR = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / "plugin-data" / "imagegen"
-else:
-    DATA_DIR = plugin_data_dir("imagegen")
-GALLERY_DIR = DATA_DIR / "gallery"
-REFS_DIR = GALLERY_DIR / "refs"
-OBJECTS_DIR = DATA_DIR / "objects"
-OBJECTS_INDEX = DATA_DIR / "objects.json"
-HISTORY_FILE = DATA_DIR / "history.json"
-LIBRARY_FILE = DATA_DIR / "library.json"
-SETTINGS_FILE = DATA_DIR / "settings.json"
-SPEND_FILE = DATA_DIR / "spend.json"
-HANDOFFS_DIR = DATA_DIR / "handoffs"
-HANDOFF_LAST_FILE = HANDOFFS_DIR / "last.json"
-EXPORT_DIR = DATA_DIR / "exports"
 
 
 def _cap_from_env(name: str, default: int) -> int:
@@ -64,7 +45,6 @@ HANDOFFS_CAP = 50
 EXPORTS_CAP = 20
 REFS_CAP = 500
 OBJECTS_CAP = 500
-JOBS_FILE = DATA_DIR / "jobs.json"
 JOBS_CAP = 64
 SPEND_CAP = 5000
 
@@ -86,12 +66,77 @@ def image_media_type(filename: str) -> str:
     return mimetypes.guess_type(str(filename))[0] or "image/png"
 
 
-def _ensure() -> None:
-    for d in (DATA_DIR, GALLERY_DIR, REFS_DIR, OBJECTS_DIR, HANDOFFS_DIR, EXPORT_DIR):
-        d.mkdir(parents=True, exist_ok=True)
+def data_dir() -> Path:
+    """The active profile's ImageGen data folder, resolved on every call.
+
+    One process may serve several Hermes profiles, so no path is fixed at
+    import: each call asks the host for the current profile's plugin data.
+    """
+    try:
+        from plugins.plugin_storage import plugin_data_dir
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"plugins", "plugins.plugin_storage"}:
+            raise
+        # Older hosts and source-only tooling still keep data outside the install tree.
+        root = image_input.hermes_home() / "plugin-data" / "imagegen"
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    return plugin_data_dir("imagegen")
 
 
-_ensure()
+def _folder(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def gallery_dir() -> Path:
+    return _folder(data_dir() / "gallery")
+
+
+def refs_dir() -> Path:
+    return _folder(gallery_dir() / "refs")
+
+
+def objects_dir() -> Path:
+    return _folder(data_dir() / "objects")
+
+
+def handoffs_dir() -> Path:
+    return _folder(data_dir() / "handoffs")
+
+
+def export_dir() -> Path:
+    return _folder(data_dir() / "exports")
+
+
+def objects_index() -> Path:
+    return data_dir() / "objects.json"
+
+
+def history_file() -> Path:
+    return data_dir() / "history.json"
+
+
+def library_file() -> Path:
+    return data_dir() / "library.json"
+
+
+def settings_file() -> Path:
+    return data_dir() / "settings.json"
+
+
+def spend_file() -> Path:
+    return data_dir() / "spend.json"
+
+
+def handoff_last_file() -> Path:
+    return handoffs_dir() / "last.json"
+
+
+def jobs_file() -> Path:
+    return data_dir() / "jobs.json"
+
+
 
 
 # One reentrant lock per JSON file, so concurrent read-modify-write sequences
@@ -101,9 +146,8 @@ _ensure()
 _FILE_LOCKS: Dict[Path, ProcessRLock] = {}
 _LOCKS_GUARD = threading.Lock()
 # Gallery mutations touch several files (image + meta + history refs); a single
-# lock keeps the whole namespace consistent. Lock order: _GALLERY_LOCK first,
+# lock keeps the whole namespace consistent. Lock order: _gallery_lock() first,
 # then the history file lock — never the reverse (avoids deadlock).
-_GALLERY_LOCK = ProcessRLock(DATA_DIR / ".gallery")
 
 
 def _file_lock(path: Path) -> ProcessRLock:
@@ -116,6 +160,11 @@ def _file_lock(path: Path) -> ProcessRLock:
         return lock
 
 
+def _gallery_lock() -> ProcessRLock:
+    """The lock over the active profile's gallery namespace."""
+    return _file_lock(data_dir() / ".gallery")
+
+
 def _read_json(path: Path, default: Any) -> Any:
     with _file_lock(path):
         return _read_json_locked(path, default)
@@ -126,7 +175,7 @@ def _read_json_locked(path: Path, default: Any) -> Any:
         if path.exists():
             return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        if path.resolve() in (SETTINGS_FILE.resolve(), SPEND_FILE.resolve()):
+        if path.resolve() in (settings_file().resolve(), spend_file().resolve()):
             raise ValueError(f"Repair {path.name} before submitting paid operations; accounting was not reset") from exc
         # Never let corrupt JSON degrade into a silent data wipe: quarantine
         # the broken file (so the next write cannot overwrite it) and log.
@@ -227,23 +276,23 @@ def save_handoff(record: Dict[str, Any]) -> Dict[str, Any]:
     now = int(time.time() * 1000)
     normalized = {"id": generation_id, "generationId": generation_id, "ts": now, **record}
     normalized.setdefault("paths", normalized.get("outputPaths") or normalized.get("images") or [])
-    path = HANDOFFS_DIR / f"{generation_id}.json"
+    path = handoffs_dir() / f"{generation_id}.json"
     with _file_lock(path):
         _write_json(path, normalized)
-    with _file_lock(HANDOFF_LAST_FILE):
-        _write_json(HANDOFF_LAST_FILE, normalized)
+    with _file_lock(handoff_last_file()):
+        _write_json(handoff_last_file(), normalized)
     _prune_handoffs()
     return normalized
 
 
 def get_handoff(handoff_id: str) -> Optional[Dict[str, Any]]:
     safe_id = _safe_entry_id(handoff_id)
-    value = _read_json(HANDOFFS_DIR / f"{safe_id}.json", None)
+    value = _read_json(handoffs_dir() / f"{safe_id}.json", None)
     return value if isinstance(value, dict) else None
 
 
 def get_last_handoff() -> Optional[Dict[str, Any]]:
-    value = _read_json(HANDOFF_LAST_FILE, None)
+    value = _read_json(handoff_last_file(), None)
     return value if isinstance(value, dict) else None
 
 
@@ -255,17 +304,17 @@ def save_handoff_feedback(handoff_id: str, feedback: Dict[str, Any]) -> Dict[str
     record["feedback"] = feedback.get("feedback", feedback)
     if "diagnosis" in feedback:
         record["diagnosis"] = feedback["diagnosis"]
-    with _file_lock(HANDOFFS_DIR / f"{safe_id}.json"):
-        _write_json(HANDOFFS_DIR / f"{safe_id}.json", record)
-    with _file_lock(HANDOFF_LAST_FILE):
+    with _file_lock(handoffs_dir() / f"{safe_id}.json"):
+        _write_json(handoffs_dir() / f"{safe_id}.json", record)
+    with _file_lock(handoff_last_file()):
         if get_last_handoff() and get_last_handoff().get("id") == safe_id:
-            _write_json(HANDOFF_LAST_FILE, record)
+            _write_json(handoff_last_file(), record)
     return record
 
 
 def get_output_dir() -> Optional[Path]:
     """Return the configured export folder, or ``None`` for internal-only storage."""
-    raw = _read_json(SETTINGS_FILE, {}).get("outputFolder", "")
+    raw = _read_json(settings_file(), {}).get("outputFolder", "")
     if not isinstance(raw, str) or not raw.strip():
         return None
     try:
@@ -278,10 +327,10 @@ def set_output_dir(folder: str) -> Optional[Path]:
     """Persist an absolute export folder and create it when needed."""
     value = (folder or "").strip()
     if not value:
-        with _file_lock(SETTINGS_FILE):
-            settings = _read_json(SETTINGS_FILE, {})
+        with _file_lock(settings_file()):
+            settings = _read_json(settings_file(), {})
             settings.pop("outputFolder", None)
-            _write_json(SETTINGS_FILE, settings)
+            _write_json(settings_file(), settings)
         return None
     path = Path(value).expanduser()
     if not path.is_absolute():
@@ -290,10 +339,10 @@ def set_output_dir(folder: str) -> Optional[Path]:
     if path.exists() and not path.is_dir():
         raise ValueError("The output folder points at a file")
     path.mkdir(parents=True, exist_ok=True)
-    with _file_lock(SETTINGS_FILE):
-        settings = _read_json(SETTINGS_FILE, {})
+    with _file_lock(settings_file()):
+        settings = _read_json(settings_file(), {})
         settings["outputFolder"] = str(path)
-        _write_json(SETTINGS_FILE, settings)
+        _write_json(settings_file(), settings)
     return path
 
 
@@ -343,13 +392,13 @@ def record_spend(provider: str, model: str, num_images: int, cost: Optional[floa
         "cost": float(cost),
         "jobId": str(job_id),
     }
-    with _file_lock(SPEND_FILE):
-        ledger = _read_json(SPEND_FILE, [])
+    with _file_lock(spend_file()):
+        ledger = _read_json(spend_file(), [])
         if not isinstance(ledger, list):
             ledger = []
         ledger.append(entry)
         ledger = _prune_spend(ledger)
-        _write_json(SPEND_FILE, ledger)
+        _write_json(spend_file(), ledger)
 
 
 def _prune_spend(ledger: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -368,7 +417,7 @@ def reserve_spend(provider: str, model: str, estimate: Optional[float], num_imag
     """
     if estimate is not None and (not math.isfinite(estimate) or estimate < 0):
         raise ValueError("Invalid cost estimate")
-    with _file_lock(SETTINGS_FILE), _file_lock(SPEND_FILE):
+    with _file_lock(settings_file()), _file_lock(spend_file()):
         limit = get_budget()["monthlyLimit"]
         spent = spend_this_month()
         if limit is not None and estimate is None:
@@ -376,7 +425,7 @@ def reserve_spend(provider: str, model: str, estimate: Optional[float], num_imag
         if limit is not None and spent + (estimate or 0) > limit:
             raise ImageGenError(BUDGET_EXCEEDED, "Monthly estimated budget exceeded", spent=spent, limit=limit, estimate=estimate)
         reservation_id = uuid.uuid4().hex
-        ledger = _read_json(SPEND_FILE, [])
+        ledger = _read_json(spend_file(), [])
         entry = {
             "id": reservation_id, "ts": time.time(), "provider": provider,
             "model": model, "numImages": num_images, "cost": estimate,
@@ -385,26 +434,26 @@ def reserve_spend(provider: str, model: str, estimate: Optional[float], num_imag
         if spend_label.get():
             entry["label"] = spend_label.get()
         ledger.append(entry)
-        _write_json(SPEND_FILE, _prune_spend(ledger))
+        _write_json(spend_file(), _prune_spend(ledger))
         return reservation_id
 
 
 def settle_spend(reservation_id: str, status: str) -> None:
     """Keep ambiguous submissions reserved; release only known rejections."""
-    with _file_lock(SPEND_FILE):
-        ledger = _read_json(SPEND_FILE, [])
+    with _file_lock(spend_file()):
+        ledger = _read_json(spend_file(), [])
         for entry in ledger:
             if entry.get("id") == reservation_id:
                 entry["status"] = status
                 if status == "rejected":
                     entry["cost"] = 0
                 break
-        _write_json(SPEND_FILE, ledger)
+        _write_json(spend_file(), ledger)
 
 
 def spend_since(ts: float) -> float:
     """Total USD recorded at or after ``ts`` (UTC epoch seconds)."""
-    ledger = _read_json(SPEND_FILE, [])
+    ledger = _read_json(spend_file(), [])
     if not isinstance(ledger, list):
         return 0.0
     total = 0.0
@@ -428,7 +477,7 @@ def spend_report() -> Dict[str, Any]:
     running count as failed until they settle; a rejected attempt costs nothing.
     """
     start = _month_start_utc(time.time())
-    ledger = _read_json(SPEND_FILE, [])
+    ledger = _read_json(spend_file(), [])
     groups: Dict[str, Dict[str, Any]] = {}
     for entry in ledger if isinstance(ledger, list) else []:
         if not isinstance(entry, dict) or float(entry.get("ts") or 0) < start:
@@ -459,7 +508,7 @@ def spend_this_month() -> float:
 
 def get_budget() -> Dict[str, Any]:
     """Return the persisted monthly budget limit (``None`` = no limit)."""
-    settings = _read_json(SETTINGS_FILE, {})
+    settings = _read_json(settings_file(), {})
     raw = settings.get("budget") if isinstance(settings, dict) else None
     limit = raw.get("monthlyLimit") if isinstance(raw, dict) else None
     if limit is None:
@@ -489,8 +538,8 @@ def set_budget(monthly_limit: Optional[float]) -> Dict[str, Any]:
             raise ValueError("The monthly budget limit must be a number") from None
         if not math.isfinite(limit) or limit < 0:
             raise ValueError("The monthly budget limit cannot be negative")
-    with _file_lock(SETTINGS_FILE):
-        settings = _read_json(SETTINGS_FILE, {})
+    with _file_lock(settings_file()):
+        settings = _read_json(settings_file(), {})
         if not isinstance(settings, dict):
             settings = {}
         budget = settings.get("budget") if isinstance(settings.get("budget"), dict) else {}
@@ -502,14 +551,14 @@ def set_budget(monthly_limit: Optional[float]) -> Dict[str, Any]:
             settings["budget"] = budget
         else:
             settings.pop("budget", None)
-        _write_json(SETTINGS_FILE, settings)
+        _write_json(settings_file(), settings)
     return {"monthlyLimit": limit}
 
 
 def budget_status() -> Dict[str, Any]:
     """Combined budget read model for the UI: limit, spend, and currency."""
     start = _month_start_utc(time.time())
-    ledger = [entry for entry in _read_json(SPEND_FILE, []) if float(entry.get("ts") or 0) >= start]
+    ledger = [entry for entry in _read_json(spend_file(), []) if float(entry.get("ts") or 0) >= start]
     return {
         "monthlyLimit": get_budget()["monthlyLimit"],
         "spentThisMonth": spend_this_month(),
@@ -525,8 +574,8 @@ def budget_status() -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def add_history(entry: Dict[str, Any]) -> Dict[str, Any]:
-    with _file_lock(HISTORY_FILE):
-        hist = _read_json(HISTORY_FILE, [])
+    with _file_lock(history_file()):
+        hist = _read_json(history_file(), [])
         entry = {
             "id": entry.get("id") or str(uuid.uuid4())[:8],
             "ts": entry.get("ts") or int(time.time() * 1000),
@@ -534,19 +583,19 @@ def add_history(entry: Dict[str, Any]) -> Dict[str, Any]:
         }
         hist = [item for item in hist if item.get("id") != entry["id"]]
         hist.insert(0, entry)
-        _write_json(HISTORY_FILE, hist[:HISTORY_CAP])
+        _write_json(history_file(), hist[:HISTORY_CAP])
     return entry
 
 
 def get_history(limit: int = 50) -> List[Dict[str, Any]]:
-    hist = _read_json(HISTORY_FILE, [])
+    hist = _read_json(history_file(), [])
     return hist[:limit]
 
 
 def remove_history(entry_id: str) -> None:
-    with _file_lock(HISTORY_FILE):
-        hist = [h for h in _read_json(HISTORY_FILE, []) if h.get("id") != entry_id]
-        _write_json(HISTORY_FILE, hist)
+    with _file_lock(history_file()):
+        hist = [h for h in _read_json(history_file(), []) if h.get("id") != entry_id]
+        _write_json(history_file(), hist)
 
 
 # ---------------------------------------------------------------------------
@@ -581,8 +630,8 @@ def save_job_record(record: Dict[str, Any]) -> None:
         return
     if not job_id:
         return
-    with _file_lock(JOBS_FILE):
-        records = _read_json(JOBS_FILE, [])
+    with _file_lock(jobs_file()):
+        records = _read_json(jobs_file(), [])
         if not isinstance(records, list):
             records = []
         previous = next((r for r in records if isinstance(r, dict) and r.get("id") == job_id), {})
@@ -600,12 +649,12 @@ def save_job_record(record: Dict[str, Any]) -> None:
                 drop = len(records) - JOBS_CAP
                 doomed = {str(r.get("id")) for r in terminal[:drop]}
                 records = [r for r in records if str(r.get("id") or "") not in doomed]
-        _write_json(JOBS_FILE, records)
+        _write_json(jobs_file(), records)
 
 
 def load_job_records() -> List[Dict[str, Any]]:
     """Return all persisted job records (newest first)."""
-    records = _read_json(JOBS_FILE, [])
+    records = _read_json(jobs_file(), [])
     if not isinstance(records, list):
         return []
     return [r for r in records if isinstance(r, dict) and r.get("id")]
@@ -632,8 +681,8 @@ def mark_orphan_jobs_interrupted() -> List[Dict[str, Any]]:
     returned so the caller can surface it as a resumable job. Terminal records
     are left untouched.
     """
-    with _file_lock(JOBS_FILE):
-        records = _read_json(JOBS_FILE, [])
+    with _file_lock(jobs_file()):
+        records = _read_json(jobs_file(), [])
         if not isinstance(records, list):
             return []
         converted: List[Dict[str, Any]] = []
@@ -647,7 +696,7 @@ def mark_orphan_jobs_interrupted() -> List[Dict[str, Any]]:
                 record.setdefault("error", "Interrupted by process restart")
                 converted.append(record)
         if converted:
-            _write_json(JOBS_FILE, records)
+            _write_json(jobs_file(), records)
     return converted
 
 
@@ -686,13 +735,13 @@ def save_gallery_entry(image_bytes: bytes, meta: Dict[str, Any]) -> Dict[str, An
     the image renamed to its final name. A metadata failure removes the temp
     image — no orphans.
     """
-    with _GALLERY_LOCK:
+    with _gallery_lock():
         image_input.validate_image_bytes(image_bytes, max_bytes=image_input.MAX_RESULT_BYTES)
         entry_id = _safe_entry_id(meta.get("id") or str(uuid.uuid4())[:8])
         suffix = {"image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif", "image/bmp": ".bmp"}.get(image_input.detect_mime(image_bytes), ".png")
         filename = f"img-{entry_id}{suffix}"
-        final_path = GALLERY_DIR / filename
-        tmp = GALLERY_DIR / f".img-{entry_id}-{uuid.uuid4().hex[:6]}.tmp"
+        final_path = gallery_dir() / filename
+        tmp = gallery_dir() / f".img-{entry_id}-{uuid.uuid4().hex[:6]}.tmp"
         tmp.write_bytes(image_bytes)
         entry = {
             **meta,
@@ -710,7 +759,7 @@ def save_gallery_entry(image_bytes: bytes, meta: Dict[str, Any]) -> Dict[str, An
                 exported = None
             if exported:
                 entry["outputPath"] = exported
-            meta_dir = GALLERY_DIR / ".meta"
+            meta_dir = gallery_dir() / ".meta"
             meta_dir.mkdir(parents=True, exist_ok=True)
             meta_path = meta_dir / f"{entry_id}.json"
             # Atomic meta write: tmp -> replace (crash-safe, no half JSON)
@@ -723,7 +772,7 @@ def save_gallery_entry(image_bytes: bytes, meta: Dict[str, Any]) -> Dict[str, An
                 pass
             # Clean up partially written meta on failure
             try:
-                (GALLERY_DIR / ".meta" / f"{entry_id}.json").unlink()
+                (gallery_dir() / ".meta" / f"{entry_id}.json").unlink()
             except OSError:
                 pass
             raise
@@ -746,12 +795,12 @@ def gallery_list() -> List[Dict[str, Any]]:
     entry id), with the metadata filename as a stable tiebreaker.
     """
     records: List[tuple] = []
-    meta_dir = GALLERY_DIR / ".meta"
+    meta_dir = gallery_dir() / ".meta"
     if meta_dir.exists():
         for mf in meta_dir.glob("*.json"):
             try:
                 meta = json.loads(mf.read_text(encoding="utf-8"))
-                img_path = GALLERY_DIR / meta.get("file", "")
+                img_path = gallery_dir() / meta.get("file", "")
                 if img_path.exists():
                     meta["url"] = f"/api/plugins/imagegen/gallery/file/{meta['file']}"
                     meta["thumb"] = meta["url"]
@@ -769,7 +818,7 @@ def gallery_stats() -> Dict[str, Any]:
     total_bytes = 0
     oldest_ts: Optional[int] = None
     for entry in entries:
-        path = GALLERY_DIR / str(entry.get("file", ""))
+        path = gallery_dir() / str(entry.get("file", ""))
         try:
             total_bytes += path.stat().st_size
         except OSError:
@@ -795,7 +844,7 @@ def clear_gallery() -> int:
 
 def gallery_metadata(entry_id: str) -> Optional[Dict[str, Any]]:
     safe_id = _safe_entry_id(entry_id)
-    meta_dir = GALLERY_DIR / ".meta"
+    meta_dir = gallery_dir() / ".meta"
     mf = meta_dir / f"{safe_id}.json"
     if mf.exists():
         try:
@@ -812,8 +861,8 @@ def _prune_gallery() -> None:
     ignored here and remains visible to the next repair/list pass. Pruned ids
     are also stripped from history references.
     """
-    with _GALLERY_LOCK:
-        meta_dir = GALLERY_DIR / ".meta"
+    with _gallery_lock():
+        meta_dir = gallery_dir() / ".meta"
         if not meta_dir.exists():
             return
         records = []
@@ -827,7 +876,7 @@ def _prune_gallery() -> None:
         pruned_ids: List[str] = []
         for _, meta_file, meta in records[GALLERY_CAP:]:
             try:
-                image_file = GALLERY_DIR / str(meta.get("file", ""))
+                image_file = gallery_dir() / str(meta.get("file", ""))
                 if image_file.is_file():
                     image_file.unlink()
                 meta_file.unlink()
@@ -852,8 +901,8 @@ def repair_gallery() -> Dict[str, int]:
     removed_images = 0
     removed_meta = 0
     removed_tmp = 0
-    with _GALLERY_LOCK:
-        meta_dir = GALLERY_DIR / ".meta"
+    with _gallery_lock():
+        meta_dir = gallery_dir() / ".meta"
         meta_dir.mkdir(parents=True, exist_ok=True)
         # Index valid metas
         valid_metas: Dict[str, Path] = {}
@@ -876,7 +925,7 @@ def repair_gallery() -> Dict[str, int]:
                     pass
                 removed_meta += 1
         # Remove orphan images (no meta)
-        for img in GALLERY_DIR.glob("img-*.*"):
+        for img in gallery_dir().glob("img-*.*"):
             if img.name not in valid_files:
                 try:
                     img.unlink()
@@ -885,14 +934,14 @@ def repair_gallery() -> Dict[str, int]:
                     pass
         # Remove meta whose image missing
         for fid, mf in list(valid_metas.items()):
-            if not (GALLERY_DIR / fid).exists():
+            if not (gallery_dir() / fid).exists():
                 try:
                     mf.unlink()
                     removed_meta += 1
                 except OSError:
                     pass
         # Clean tmp files
-        for tmp in list(GALLERY_DIR.glob(".*.tmp")):
+        for tmp in list(gallery_dir().glob(".*.tmp")):
             try:
                 tmp.unlink()
                 removed_tmp += 1
@@ -909,24 +958,24 @@ def repair_gallery() -> Dict[str, int]:
 
 def gallery_file(filename: str) -> Optional[Path]:
     safe_name = Path(filename).name
-    p = (GALLERY_DIR / safe_name).resolve()
-    if p.parent == GALLERY_DIR.resolve() and p.exists() and p.is_file():
+    p = (gallery_dir() / safe_name).resolve()
+    if p.parent == gallery_dir().resolve() and p.exists() and p.is_file():
         return p
     return None
 
 
 def delete_gallery_entry(entry_id: str) -> None:
     safe_id = _safe_entry_id(entry_id)
-    with _GALLERY_LOCK:
+    with _gallery_lock():
         meta = gallery_metadata(safe_id)
         if meta:
-            f = GALLERY_DIR / meta.get("file", "")
+            f = gallery_dir() / meta.get("file", "")
             if f.exists():
                 try:
                     f.unlink()
                 except OSError:
                     pass
-            mf = GALLERY_DIR / ".meta" / f"{safe_id}.json"
+            mf = gallery_dir() / ".meta" / f"{safe_id}.json"
             if mf.exists():
                 try:
                     mf.unlink()
@@ -943,8 +992,8 @@ def _strip_history_gallery_refs(removed_ids: Iterable[str]) -> None:
     removed = {str(gid) for gid in removed_ids if gid}
     if not removed:
         return
-    with _file_lock(HISTORY_FILE):
-        hist = _read_json(HISTORY_FILE, [])
+    with _file_lock(history_file()):
+        hist = _read_json(history_file(), [])
         changed = False
         for entry in hist:
             ids = list(entry.get("gallery_ids") or [])
@@ -960,7 +1009,7 @@ def _strip_history_gallery_refs(removed_ids: Iterable[str]) -> None:
             entry["images"] = [images[i] for i in keep if i < len(images)]
             changed = True
         if changed:
-            _write_json(HISTORY_FILE, hist)
+            _write_json(history_file(), hist)
 
 
 # ---------------------------------------------------------------------------
@@ -976,8 +1025,8 @@ def export_gallery_pack(entry_id: str) -> Optional[Path]:
     image = gallery_file(str(meta.get("file", "")))
     if image is None:
         return None
-    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    target = EXPORT_DIR / f"imagegen-{safe_id}.zip"
+    export_dir().mkdir(parents=True, exist_ok=True)
+    target = export_dir() / f"imagegen-{safe_id}.zip"
     metadata = {key: value for key, value in meta.items() if key not in {"url", "thumb", "localPath"}}
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.write(image, f"image{image.suffix}")
@@ -991,17 +1040,17 @@ def clear_plugin_data(*, gallery: bool = False, handoffs: bool = False, subjects
     deleted = {"gallery": 0, "handoffs": 0, "subjects": 0}
     if gallery:
         deleted["gallery"] = clear_gallery()
-    if handoffs and HANDOFFS_DIR.exists():
-        deleted["handoffs"] = len(list(HANDOFFS_DIR.glob("*.json")))
-        shutil.rmtree(HANDOFFS_DIR, ignore_errors=True)
-        HANDOFFS_DIR.mkdir(parents=True, exist_ok=True)
+    if handoffs and handoffs_dir().exists():
+        deleted["handoffs"] = len(list(handoffs_dir().glob("*.json")))
+        shutil.rmtree(handoffs_dir(), ignore_errors=True)
+        handoffs_dir().mkdir(parents=True, exist_ok=True)
     if subjects:
         deleted["subjects"] = len(objects_list())
-        shutil.rmtree(OBJECTS_DIR, ignore_errors=True)
-        OBJECTS_DIR.mkdir(parents=True, exist_ok=True)
-        with _file_lock(OBJECTS_INDEX):
-            _write_json(OBJECTS_INDEX, [])
-        subjects_root = DATA_DIR / "subjects"
+        shutil.rmtree(objects_dir(), ignore_errors=True)
+        objects_dir().mkdir(parents=True, exist_ok=True)
+        with _file_lock(objects_index()):
+            _write_json(objects_index(), [])
+        subjects_root = data_dir() / "subjects"
         if subjects_root.exists():
             shutil.rmtree(subjects_root, ignore_errors=True)
             subjects_root.mkdir(parents=True, exist_ok=True)
@@ -1013,7 +1062,7 @@ def clear_plugin_data(*, gallery: bool = False, handoffs: bool = False, subjects
 # ---------------------------------------------------------------------------
 
 def library_list() -> List[Dict[str, Any]]:
-    return _read_json(LIBRARY_FILE, [])
+    return _read_json(library_file(), [])
 
 
 def library_save(name: str, prompt: str, config: Dict[str, Any], refs: Optional[List[Dict[str, Any]]] = None,
@@ -1029,18 +1078,18 @@ def library_save(name: str, prompt: str, config: Dict[str, Any], refs: Optional[
         "negativePrompt": negative_prompt,
         "ts": int(time.time() * 1000),
     }
-    with _file_lock(LIBRARY_FILE):
+    with _file_lock(library_file()):
         items = library_list()
         items = [i for i in items if i.get("id") != item["id"]]
         items.insert(0, item)
-        _write_json(LIBRARY_FILE, items[:LIBRARY_CAP])
+        _write_json(library_file(), items[:LIBRARY_CAP])
     return item
 
 
 def library_remove(entry_id: str) -> None:
-    with _file_lock(LIBRARY_FILE):
+    with _file_lock(library_file()):
         items = [i for i in library_list() if i.get("id") != entry_id]
-        _write_json(LIBRARY_FILE, items)
+        _write_json(library_file(), items)
 
 
 # ---------------------------------------------------------------------------
@@ -1066,10 +1115,10 @@ def _fetch_image_bytes_inner(value: str, max_bytes: int) -> bytes:
 
 def _prune_handoffs(cap: int = HANDOFFS_CAP) -> None:
     """Keep only the most recent handoff records (plus last.json)."""
-    if not HANDOFFS_DIR.exists():
+    if not handoffs_dir().exists():
         return
     files = sorted(
-        (p for p in HANDOFFS_DIR.glob("*.json") if p.name != "last.json"),
+        (p for p in handoffs_dir().glob("*.json") if p.name != "last.json"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -1082,9 +1131,9 @@ def _prune_handoffs(cap: int = HANDOFFS_CAP) -> None:
 
 def _prune_exports(cap: int = EXPORTS_CAP) -> None:
     """Keep only the most recent export zips."""
-    if not EXPORT_DIR.exists():
+    if not export_dir().exists():
         return
-    files = sorted(EXPORT_DIR.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+    files = sorted(export_dir().glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
     for old in files[cap:]:
         try:
             old.unlink()
@@ -1097,10 +1146,10 @@ _REF_EXTENSIONS = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".we
 
 
 def save_reference(binary: bytes) -> Path:
-    """Keep an uploaded reference image in ``REFS_DIR``; raises ``ValueError`` for a bad image."""
+    """Keep an uploaded reference image in ``refs_dir()``; raises ``ValueError`` for a bad image."""
     image_input.validate_image_bytes(binary)
     ext = _REF_EXTENSIONS.get(image_input.detect_mime(binary), ".png")
-    path = REFS_DIR / f"ref-{uuid.uuid4().hex[:10]}{ext}"
+    path = refs_dir() / f"ref-{uuid.uuid4().hex[:10]}{ext}"
     path.write_bytes(binary)
     prune_refs()
     return path
@@ -1108,11 +1157,11 @@ def save_reference(binary: bytes) -> Path:
 
 def prune_refs(cap: int = REFS_CAP) -> None:
     """Keep only the most recent uploaded reference images."""
-    if not REFS_DIR.exists():
+    if not refs_dir().exists():
         return
     # Another process pruning at the same time may remove a file between the listing and its stat.
     dated = []
-    for path in REFS_DIR.glob("ref-*"):
+    for path in refs_dir().glob("ref-*"):
         try:
             if path.is_file():
                 dated.append((path.stat().st_mtime, path))
@@ -1133,8 +1182,8 @@ def objects_prune(cap: int = OBJECTS_CAP) -> int:
     + angles). Returns number of pruned entries. Robust: ignores missing files,
     never raises.
     """
-    with _file_lock(OBJECTS_INDEX):
-        items = _read_json(OBJECTS_INDEX, []) or []
+    with _file_lock(objects_index()):
+        items = _read_json(objects_index(), []) or []
         if not isinstance(items, list) or len(items) <= cap:
             return 0
         # Sort newest first by updatedAt/createdAt/ts fallback
@@ -1162,18 +1211,18 @@ def objects_prune(cap: int = OBJECTS_CAP) -> int:
                     files_to_remove.add(af)
         for fname in files_to_remove:
             try:
-                p = OBJECTS_DIR / fname
+                p = objects_dir() / fname
                 if p.exists():
                     p.unlink()
             except OSError:
                 pass
         # Also clean stray tmp files
-        for tmp in OBJECTS_DIR.glob(".*.tmp"):
+        for tmp in objects_dir().glob(".*.tmp"):
             try:
                 tmp.unlink()
             except OSError:
                 pass
-        _write_json(OBJECTS_INDEX, keep)
+        _write_json(objects_index(), keep)
         return len(drop)
 
 
@@ -1199,16 +1248,16 @@ def _file_hash(data: bytes) -> str:
 
 
 def objects_list() -> List[Dict[str, Any]]:
-    items = _read_json(OBJECTS_INDEX, []) or []
+    items = _read_json(objects_index(), []) or []
     out = []
     for it in items:
-        img = OBJECTS_DIR / it.get("file", "")
+        img = objects_dir() / it.get("file", "")
         if not img.exists():
             continue
         angles = []
         for angle in it.get("angles") or []:
             angle_file = str(angle.get("file") or "")
-            angle_path = OBJECTS_DIR / angle_file
+            angle_path = objects_dir() / angle_file
             if not angle_path.exists():
                 continue
             angles.append({
@@ -1271,7 +1320,7 @@ def subjects_kinds() -> Dict[str, Any]:
 def find_object_by_hash(content_hash: str) -> Optional[Dict[str, Any]]:
     if not content_hash:
         return None
-    for item in _read_json(OBJECTS_INDEX, []) or []:
+    for item in _read_json(objects_index(), []) or []:
         if item.get("contentHash") == content_hash:
             return item
         for angle in item.get("angles") or []:
@@ -1290,12 +1339,12 @@ def object_add(
     *,
     dedupe: bool = True,
 ) -> Dict[str, Any]:
-    OBJECTS_DIR.mkdir(parents=True, exist_ok=True)
+    objects_dir().mkdir(parents=True, exist_ok=True)
     content_hash = _file_hash(source_bytes)
     if dedupe:
         existing = find_object_by_hash(content_hash)
         if existing:
-            path = OBJECTS_DIR / existing.get("file", "")
+            path = objects_dir() / existing.get("file", "")
             return {
                 **existing,
                 "localPath": str(path) if path.exists() else "",
@@ -1303,7 +1352,7 @@ def object_add(
             }
     # Unique filename with ms+uuid (atomic tmp->replace)
     unique_name = _unique_filename(file_name)
-    dest = OBJECTS_DIR / unique_name
+    dest = objects_dir() / unique_name
     _atomic_write_bytes(dest, source_bytes)
     item = {
         "id": str(uuid.uuid4())[:8],
@@ -1324,11 +1373,11 @@ def object_add(
         "createdAt": int(time.time()),
         "updatedAt": int(time.time()),
     }
-    with _file_lock(OBJECTS_INDEX):
-        items = _read_json(OBJECTS_INDEX, []) or []
+    with _file_lock(objects_index()):
+        items = _read_json(objects_index(), []) or []
         items = [i for i in items if i.get("file") != unique_name]
         items.append(item)
-        _write_json(OBJECTS_INDEX, items)
+        _write_json(objects_index(), items)
         # LRU cap enforcement
         if len(items) > OBJECTS_CAP:
             # release lock ordering handled inside prune; call without holding? but we already hold file lock reentrant so ok
@@ -1340,8 +1389,8 @@ def object_add(
 
 
 def subject_update(obj_id: str, patch: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    with _file_lock(OBJECTS_INDEX):
-        items = _read_json(OBJECTS_INDEX, []) or []
+    with _file_lock(objects_index()):
+        items = _read_json(objects_index(), []) or []
         updated = None
         for item in items:
             if item.get("id") != obj_id:
@@ -1361,7 +1410,7 @@ def subject_update(obj_id: str, patch: Dict[str, Any]) -> Optional[Dict[str, Any
             break
         if updated is None:
             return None
-        _write_json(OBJECTS_INDEX, items)
+        _write_json(objects_index(), items)
     return next((o for o in objects_list() if o.get("id") == obj_id), updated)
 
 
@@ -1369,15 +1418,15 @@ def subject_add_angle(obj_id: str, file_name: str, source_bytes: bytes, label: s
     content_hash = _file_hash(source_bytes)
     # Generate unique filename early (ms+uuid) for atomic write
     unique_name = _unique_filename(file_name)
-    with _file_lock(OBJECTS_INDEX):
-        items = _read_json(OBJECTS_INDEX, []) or []
+    with _file_lock(objects_index()):
+        items = _read_json(objects_index(), []) or []
         for item in items:
             if item.get("id") != obj_id:
                 continue
             angles = list(item.get("angles") or [])
             if any(a.get("contentHash") == content_hash for a in angles):
                 return next((o for o in objects_list() if o.get("id") == obj_id), item)
-            dest = OBJECTS_DIR / unique_name
+            dest = objects_dir() / unique_name
             _atomic_write_bytes(dest, source_bytes)
             angles.append({
                 "id": str(uuid.uuid4())[:8],
@@ -1388,7 +1437,7 @@ def subject_add_angle(obj_id: str, file_name: str, source_bytes: bytes, label: s
             })
             item["angles"] = angles
             item["updatedAt"] = int(time.time())
-            _write_json(OBJECTS_INDEX, items)
+            _write_json(objects_index(), items)
             # Enforce cap after angle addition (count unchanged but refresh LRU)
             if len(items) > OBJECTS_CAP:
                 try:
@@ -1433,8 +1482,8 @@ def subject_as_refs(obj_id: str, *, max_refs: int = 4) -> List[Dict[str, Any]]:
 
 
 def object_remove(obj_id: str) -> bool:
-    with _file_lock(OBJECTS_INDEX):
-        items = _read_json(OBJECTS_INDEX, []) or []
+    with _file_lock(objects_index()):
+        items = _read_json(objects_index(), []) or []
         kept = [i for i in items if i.get("id") != obj_id]
         if len(kept) == len(items):
             return False
@@ -1444,12 +1493,12 @@ def object_remove(obj_id: str) -> bool:
             files.add(str(angle.get("file") or ""))
         for file_name in files:
             try:
-                f = OBJECTS_DIR / file_name
+                f = objects_dir() / file_name
                 if file_name and f.exists():
                     f.unlink()
             except Exception:  # noqa: BLE001
                 pass
-        _write_json(OBJECTS_INDEX, kept)
+        _write_json(objects_index(), kept)
     return True
 
 
@@ -1487,7 +1536,7 @@ def feed_list(*, source: str = "all", provider: Optional[str] = None,
     needle = (query or "").strip().lower()
     prov = (provider or "").strip().lower()
 
-    history = _read_json(HISTORY_FILE, [])
+    history = _read_json(history_file(), [])
     gallery = gallery_list()
     gallery_by_id = {str(item["id"]): item for item in gallery}
 
@@ -1588,14 +1637,14 @@ def export_feed_zip(ids: List[str]) -> Optional[Path]:
         if not safe:
             raise ValueError("At least one id is required")
         raise ValueError("At most 20 items can be exported at once")
-    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    target = EXPORT_DIR / f"imagegen-bulk-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}.zip"
+    export_dir().mkdir(parents=True, exist_ok=True)
+    target = export_dir() / f"imagegen-bulk-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}.zip"
     added = 0
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for fid in safe:
             # Resolve history -> gallery ids, or direct gallery id
             gids: List[str] = []
-            hist = _read_json(HISTORY_FILE, [])
+            hist = _read_json(history_file(), [])
             for entry in hist:
                 if str(entry.get("id")) == fid:
                     gids = [str(g) for g in (entry.get("gallery_ids") or []) if g]
@@ -1653,8 +1702,8 @@ def feed_delete(entry_id: str) -> int:
     """
     safe_id = _safe_entry_id(entry_id)
     gallery_ids: List[str] = []
-    with _file_lock(HISTORY_FILE):
-        hist = _read_json(HISTORY_FILE, [])
+    with _file_lock(history_file()):
+        hist = _read_json(history_file(), [])
         kept = []
         for entry in hist:
             if str(entry.get("id")) == safe_id:
@@ -1662,7 +1711,7 @@ def feed_delete(entry_id: str) -> int:
                 continue
             kept.append(entry)
         if len(kept) != len(hist):
-            _write_json(HISTORY_FILE, kept)
+            _write_json(history_file(), kept)
     if not gallery_ids:
         # Saved-only entry: the id is itself a gallery id.
         try:

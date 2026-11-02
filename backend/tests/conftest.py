@@ -1,9 +1,9 @@
 """Test-session isolation for the persistent job store.
 
-``dashboard.jobs`` hydrates persisted records at module import time (and every
+``imagegen_engine.jobs`` hydrates persisted records at module import time (and every
 job state transition writes data/jobs.json), so the very first import must not
 read or write the developer's real ``backend/data/jobs.json``. Point the store
-at a scratch file before any test module imports ``dashboard.jobs``; per-test
+at a scratch file before any test module imports ``imagegen_engine.jobs``; per-test
 fixtures (e.g. ``test_routes.isolated_store``) re-derive it under tmp_path.
 """
 from __future__ import annotations
@@ -17,11 +17,11 @@ from pathlib import Path
 
 import pytest
 
-from dashboard import store
+from imagegen_engine import store
 
 _JOBS_DIR = tempfile.mkdtemp(prefix="imagegen-test-jobs-")
 atexit.register(shutil.rmtree, _JOBS_DIR, ignore_errors=True)
-store.JOBS_FILE = Path(_JOBS_DIR) / "jobs.json"
+store.jobs_file = lambda: Path(_JOBS_DIR) / "jobs.json"
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ def offline_fal_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep FAL's public catalog offline: an empty, fresh cache and no HTTP."""
     import time
 
-    from dashboard import fal_catalog
+    from imagegen_engine import fal_catalog
 
     def refuse(params):
         raise OSError("network disabled in tests")

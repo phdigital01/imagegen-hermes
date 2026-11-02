@@ -4,7 +4,7 @@ Runs over stdio. Registered in the host ``config.yaml`` under ``mcp_servers``
 (see docs/runbooks/development.md). Reuses ``gen_service``/``store`` in-process — the
 same engine as the plugin UI — so the agent generates with the plugin's
 provider catalog (capabilities resolved by
-``dashboard.capabilities.resolve_capabilities``), its subject library and its
+``imagegen_engine.capabilities.resolve_capabilities``), its subject library and its
 reference pipeline instead of the host's generic image tool.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ import logging
 import os
 import sys
 
-# Ensure the plugin's dashboard import works.
+# Ensure the plugin's imagegen_engine import works.
 _PLUGIN_HOME = os.path.dirname(os.path.abspath(__file__))
 if _PLUGIN_HOME not in sys.path:
     sys.path.insert(0, _PLUGIN_HOME)
@@ -25,8 +25,8 @@ try:
 except ModuleNotFoundError:
     from mcp.server.mcpserver import MCPServer as FastMCP  # noqa: E402  # mcp>=2.0
 
-from dashboard import gen_service, llm_service, store  # noqa: E402
-from dashboard.errors import ImageGenError  # noqa: E402
+from imagegen_engine import gen_service, llm_service, store  # noqa: E402
+from imagegen_engine.errors import ImageGenError  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -69,10 +69,10 @@ def imagegen_providers() -> str:
     means the model accepts up to N reference images (N > 0 is required for
     ``imagegen_generate``'s ``reference_images`` to work). The capabilities
     come from the same resolver the plugin UI and the generation pipeline use
-    (``dashboard.capabilities.resolve_capabilities``), so this list is the
+    (``imagegen_engine.capabilities.resolve_capabilities``), so this list is the
     single source of truth for "does this model accept references".
     """
-    from dashboard.providers_catalog import _list_providers
+    from imagegen_engine.providers_catalog import _list_providers
 
     out = []
     for prov in _list_providers():
@@ -314,7 +314,7 @@ def imagegen_generate(provider: str = "fal", model: str = "", prompt: str = "",
         reference_images=refs,
     )
     if body["saveToGallery"]:
-        from dashboard.generation_artifacts import save_generation_artifacts
+        from imagegen_engine.generation_artifacts import save_generation_artifacts
 
         result = save_generation_artifacts(body, result)
     return json.dumps(result, ensure_ascii=False, indent=2)

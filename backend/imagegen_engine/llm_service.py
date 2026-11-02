@@ -6,14 +6,14 @@ model. It never generates an image and never touches a paid image provider —
 `gen_service` owns that. The two modules share nothing but the error type.
 
 Both transports go through the host-owned ``ctx.llm`` facade
-(:mod:`dashboard.host_llm`), so calls use the user's active model and
+(:mod:`imagegen_engine.host_llm`), so calls use the user's active model and
 credentials under the plugin's trust policy:
 
 - :func:`_llm_call`  — text-only system + user prompt.
 - :func:`_vision_call` — multimodal messages with image blocks, on the plugin's
   ``imagegen_vision`` slot, which follows the user's vision model.
 
-Both use the plugin's own auxiliary slots (:data:`dashboard.host_llm.TASKS`).
+Both use the plugin's own auxiliary slots (:data:`imagegen_engine.host_llm.TASKS`).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from dashboard.errors import (
+from imagegen_engine.errors import (
     ImageGenError,
     LLM_EMPTY_RESPONSE,
     LLM_NO_VISION,
@@ -70,7 +70,7 @@ def _retry_transient(operation, *, label: str, attempts: int = 3, base_delay: fl
 
 
 def _host_llm() -> Any:
-    from dashboard import host_llm
+    from imagegen_engine import host_llm
 
     llm = host_llm.get()
     if llm is None:
@@ -79,7 +79,7 @@ def _host_llm() -> Any:
 
 
 def _complete(messages: List[Dict[str, Any]], *, task: str, purpose: str, max_tokens: int, temperature: float) -> str:
-    from dashboard import host_llm
+    from imagegen_engine import host_llm
 
     try:
         llm = _host_llm()
@@ -150,7 +150,7 @@ def _vision_call(messages: List[Dict[str, Any]], *, max_tokens: int = 1200, temp
 
 def _img_blocks(images: Optional[List[str]]) -> List[Dict[str, Any]]:
     import base64
-    from dashboard import image_input, store
+    from imagegen_engine import image_input, store
 
     blocks: List[Dict[str, Any]] = []
     for img in (images or [])[:4]:
@@ -193,7 +193,7 @@ def _refs_context(refs_meta: Optional[List[Dict[str, Any]]]) -> str:
 
 def _genre_block(genre: str) -> str:
     """Genre template (C4) — expected structure + specific negatives."""
-    from dashboard.presets import GENRES
+    from imagegen_engine.presets import GENRES
 
     g = next((x for x in GENRES if x["id"] == genre), None)
     if not g:
@@ -286,7 +286,7 @@ def llm_optimize_prompt(prompt: str, tool_target: str = "generic", subject_type:
           "Return ONLY the optimized prompt in English."
     )
     try:
-        from dashboard.model_profiles import prompt_system_addendum
+        from imagegen_engine.model_profiles import prompt_system_addendum
 
         addendum = prompt_system_addendum(model=tool_target or "")
         if addendum:
@@ -363,7 +363,7 @@ def llm_composition_analyze(scene: str, images: Optional[List[str]] = None,
       brief and refines.
     - C4: genre template.
     """
-    from dashboard.presets import GENRE_BY_SUBJECT
+    from imagegen_engine.presets import GENRE_BY_SUBJECT
 
     if not genre:
         genre = GENRE_BY_SUBJECT.get(subject_type, "ad_product")

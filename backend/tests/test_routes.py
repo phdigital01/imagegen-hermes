@@ -30,8 +30,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from dashboard import gen_service, plugin_api, store
-from dashboard.capabilities import CAPABILITY_KEYS
+from imagegen_engine import gen_service, plugin_api, store
+from imagegen_engine.capabilities import CAPABILITY_KEYS
 
 _PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 _JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 32
@@ -39,18 +39,8 @@ _JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 32
 
 @pytest.fixture
 def isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Redirect every store path under tmp_path, then create the layout.
-
-    All module-level ``Path`` attributes of ``store`` that live under the
-    original ``DATA_DIR`` are re-derived under ``tmp_path`` (keeps working when
-    new paths such as a jobs file are added).
-    """
-    original_data = store.DATA_DIR
-    monkeypatch.setattr(store, "DATA_DIR", tmp_path)
-    for name, value in list(vars(store).items()):
-        if isinstance(value, Path) and str(value).startswith(str(original_data)):
-            monkeypatch.setattr(store, name, tmp_path / value.relative_to(original_data))
-    store._ensure()
+    """Redirect the store under tmp_path; every store path derives from ``data_dir``."""
+    monkeypatch.setattr(store, "data_dir", lambda: tmp_path)
     return tmp_path
 
 
@@ -108,7 +98,8 @@ def test_providers_models_carry_stable_derived_capabilities(client: TestClient) 
     assert resp.status_code == 200
     providers = resp.json()["providers"]
     names = {p["name"] for p in providers}
-    assert {"fal", "magnific", "vertex", "nous"} <= names
+    # nous is listed only when Hermes registers it; ImageGen adds no Nous entry itself.
+    assert {"fal", "magnific", "vertex"} <= names
 
     model_count = 0
     for provider in providers:
@@ -134,7 +125,7 @@ def test_providers_models_carry_stable_derived_capabilities(client: TestClient) 
 
 
 def test_providers_status_counts_a_linked_subscription_as_configured(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    from dashboard.routes import system
+    from imagegen_engine.routes import system
 
     monkeypatch.setattr(system, "_list_providers", lambda: [
         {"name": "openai-codex", "available": True},
@@ -262,7 +253,7 @@ def test_upload_writes_real_extension_and_serves_with_media_type(
     body = resp.json()
     name = body["name"]
     assert name.endswith(expected_ext)
-    stored = store.REFS_DIR / name
+    stored = store.refs_dir() / name
     assert stored.is_file()
     assert stored.read_bytes() == (base64.b64decode(data_url.split(",", 1)[1]))
 
@@ -386,7 +377,7 @@ def test_jobs_cancel_missing_returns_structured_404(client: TestClient) -> None:
 
 def test_jobs_cancel_terminal_returns_ok_false(client: TestClient) -> None:
     """Cancel on an existing but already-terminal job is a no-op, not a 404."""
-    from dashboard import jobs
+    from imagegen_engine import jobs
 
     job = jobs.manager.submit("generate", lambda j: {"images": []})
     job.thread.join(timeout=5)

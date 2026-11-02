@@ -94,7 +94,7 @@ def _parse(argv: List[str]) -> argparse.Namespace:
 
 def _list(provider: str) -> Any:
     """The providers ImageGen can use now with their default model, or the models of one provider."""
-    from dashboard.providers_catalog import available_providers
+    from imagegen_engine.providers_catalog import available_providers
 
     providers = available_providers()
     if not provider:
@@ -121,7 +121,7 @@ def _add_hermes_source() -> None:
 def _use_profile(name: str) -> None:
     """Point the engine at a named Hermes profile and load its keys, as Hermes does at start.
 
-    Must run before ``dashboard`` is imported.
+    Must run before ``imagegen_engine`` is imported.
     """
     from hermes_constants import get_default_hermes_root
 
@@ -139,7 +139,7 @@ def _use_profile(name: str) -> None:
 @lru_cache(maxsize=32)  # a batch often sends the same photos with every job
 def _reference_bytes(path: Path, max_side: int = _REF_MAX_SIDE) -> bytes:
     """The bytes to send: the file itself, or a reduced copy when it is long or over the upload limit."""
-    from dashboard import image_input
+    from imagegen_engine import image_input
 
     data = path.read_bytes()
     over_limit = len(data) > image_input.MAX_IMAGE_BYTES
@@ -163,7 +163,7 @@ def _reference_bytes(path: Path, max_side: int = _REF_MAX_SIDE) -> bytes:
 
 
 def _store_references(paths: List[Path], max_side: int = _REF_MAX_SIDE) -> List[str]:
-    from dashboard import store
+    from imagegen_engine import store
 
     stored = []
     for path in paths:
@@ -178,7 +178,7 @@ def _store_references(paths: List[Path], max_side: int = _REF_MAX_SIDE) -> List[
 
 def _store_edit_source(path: Path) -> str:
     """The image to edit, whole: only a file over the upload limit is written again, at top quality."""
-    from dashboard import edit_merge, image_input, store
+    from imagegen_engine import edit_merge, image_input, store
 
     if not path.is_file():
         raise SystemExit(f"ERROR [refs.not_found]: image to edit not found: {path}")
@@ -205,8 +205,8 @@ def _replace_target(folder: Path, stem: str, suffix: str, index: int) -> Path:
 
 
 def _retryable(exc: Exception) -> bool:
-    from dashboard import gen_service
-    from dashboard.errors import ImageGenError
+    from imagegen_engine import gen_service
+    from imagegen_engine.errors import ImageGenError
 
     if isinstance(exc, ImageGenError):
         return exc.code in ("provider.failed", "model.no_image")
@@ -228,7 +228,7 @@ def _generate(args: argparse.Namespace) -> Dict[str, Any]:
 
 def _resolve_provider(args: argparse.Namespace) -> tuple[str, str]:
     """The provider and model of a run; listing the providers takes about 3 s of CPU, so a batch does it once."""
-    from dashboard.providers_catalog import available_providers, resolve_target
+    from imagegen_engine.providers_catalog import available_providers, resolve_target
 
     if args.provider:
         model = args.model or next(
@@ -247,9 +247,9 @@ def _resolve_provider(args: argparse.Namespace) -> tuple[str, str]:
 
 def _generate_one(args: argparse.Namespace, prompt: str, refs: List[Path], aspect: str, out: Path,
                   name: str, label: str = "", edit: Path | None = None, mask: Path | None = None) -> Dict[str, Any]:
-    from dashboard import image_input, store
-    from dashboard.generation_artifacts import InlineJob, build_generation_job
-    from dashboard.operations import build_operation
+    from imagegen_engine import image_input, store
+    from imagegen_engine.generation_artifacts import InlineJob, build_generation_job
+    from imagegen_engine.operations import build_operation
 
     provider, model = _resolve_provider(args)
     body = {"prompt": prompt, "provider": provider, "model": model, "aspectRatio": aspect,
@@ -312,7 +312,7 @@ def _read_jobs(args: argparse.Namespace) -> List[Dict[str, Any]]:
 
 
 def _batch_job(args: argparse.Namespace, job: Dict[str, Any]) -> Dict[str, Any]:
-    from dashboard.errors import ImageGenError
+    from imagegen_engine.errors import ImageGenError
 
     report: Dict[str, Any] = {"name": job["name"]}
     try:
@@ -355,10 +355,10 @@ def main(argv: List[str] | None = None) -> int:
         _use_profile(args.profile)
     if _PLUGIN_HOME not in sys.path:
         sys.path.insert(0, _PLUGIN_HOME)
-    from dashboard.errors import ImageGenError
+    from imagegen_engine.errors import ImageGenError
 
     if args.spend:
-        from dashboard import store
+        from imagegen_engine import store
 
         print(json.dumps(store.spend_report(), ensure_ascii=False, indent=2))
         return 0

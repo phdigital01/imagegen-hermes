@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from dashboard import gen_service, jobs
-from dashboard.errors import (
+from imagegen_engine import gen_service, jobs
+from imagegen_engine.errors import (
     ImageGenError,
     PROVIDER_FAILED,
     REFS_MODEL_UNSUPPORTED,
@@ -72,9 +72,9 @@ def test_prepare_reference_sources_model_unsupported_names_the_model() -> None:
 def test_prepare_reference_sources_unresolved_names_the_ref(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    from dashboard import store
+    from imagegen_engine import store
 
-    monkeypatch.setattr(store, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(store, "data_dir", lambda: tmp_path)
     outside = tmp_path.parent / "outside.png"
     outside.write_bytes(b"x")
     with pytest.raises(ImageGenError) as exc_info:
@@ -110,7 +110,7 @@ def test_generate_route_propagates_structured_error(monkeypatch: pytest.MonkeyPa
 
     from fastapi import HTTPException
 
-    from dashboard.routes import generation as generation_routes
+    from imagegen_engine.routes import generation as generation_routes
 
     class _Req:
         base_url = "http://test/"
@@ -157,7 +157,7 @@ def _bundle(text: str, lang: str) -> str:
 
 def test_every_error_code_has_localized_key_in_all_languages() -> None:
     """Contract: backend codes ↔ frontend i18n keys, same placeholders everywhere."""
-    from dashboard import errors
+    from imagegen_engine import errors
 
     i18n_path = Path(__file__).resolve().parents[2] / "frontend" / "i18n.ts"
     text = i18n_path.read_text(encoding="utf-8")
@@ -166,7 +166,7 @@ def test_every_error_code_has_localized_key_in_all_languages() -> None:
         for name, value in vars(errors).items()
         if name.isupper() and isinstance(value, str) and "." in value
     )
-    assert codes, "no error codes found in dashboard.errors"
+    assert codes, "no error codes found in imagegen_engine.errors"
 
     for lang in ("en", "pt", "es", "zh"):
         bundle = _bundle(text, lang)

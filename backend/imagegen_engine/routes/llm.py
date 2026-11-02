@@ -7,10 +7,10 @@ from typing import Any, Dict
 
 from fastapi import Body, HTTPException
 
-from dashboard import llm_service, store
-from dashboard.api_core import coerce_body, _imagegen_error_http, _to_thread, make_router
-from dashboard.errors import ImageGenError
-from dashboard.prompt_builder import build_prompt, format_for_tool
+from imagegen_engine import llm_service, store
+from imagegen_engine.api_core import coerce_body, _imagegen_error_http, _to_thread, make_router
+from imagegen_engine.errors import ImageGenError
+from imagegen_engine.prompt_builder import build_prompt, format_for_tool
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ async def refine_from_feedback(body: Any = Body(None)) -> Dict[str, Any]:
 
 @router.get("/presets")
 async def presets() -> Dict[str, Any]:
-    from dashboard import presets as P
+    from imagegen_engine import presets as P
 
     return {
         "subject_types": P.SUBJECT_TYPES,
@@ -201,7 +201,7 @@ async def llm_composition_analyze(body: Any = Body(None)) -> Dict[str, Any]:
 
 @router.get("/genres")
 async def genres() -> Dict[str, Any]:
-    from dashboard.presets import GENRES
+    from imagegen_engine.presets import GENRES
 
     return {"genres": GENRES}
 

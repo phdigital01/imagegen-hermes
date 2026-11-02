@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("agent.image_gen_provider")
 
-from dashboard import chat_provider, generation_artifacts, providers_catalog  # noqa: E402
+from imagegen_engine import chat_provider, generation_artifacts, providers_catalog  # noqa: E402
 
 _PROVIDERS = [
     {"name": "fal", "display_name": "FAL.ai", "available": True, "recommended": True,

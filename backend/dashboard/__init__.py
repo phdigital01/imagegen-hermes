@@ -1,1 +1,0 @@
-"""ImageGen dashboard backend package."""

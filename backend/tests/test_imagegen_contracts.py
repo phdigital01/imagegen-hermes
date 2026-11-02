@@ -9,16 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from dashboard import gen_service, llm_service, model_profiles, store
-from dashboard.generation_artifacts import parse_num_images
-from dashboard.routes import llm as llm_routes
+from imagegen_engine import gen_service, llm_service, model_profiles, store
+from imagegen_engine.generation_artifacts import parse_num_images
+from imagegen_engine.routes import llm as llm_routes
 
 
 @pytest.fixture
 def isolated_handoffs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(store, "HANDOFFS_DIR", tmp_path / "handoffs")
-    monkeypatch.setattr(store, "HANDOFF_LAST_FILE", tmp_path / "handoffs" / "last.json")
-    store._ensure()
+    monkeypatch.setattr(store, "handoffs_dir", lambda: tmp_path / "handoffs")
+    monkeypatch.setattr(store, "handoff_last_file", lambda: tmp_path / "handoffs" / "last.json")
     return tmp_path / "handoffs"
 
 
@@ -134,8 +133,8 @@ def test_export_gallery_pack_contains_image_and_metadata(tmp_path: Path, monkeyp
     exports = tmp_path / "exports"
     gallery.mkdir()
     meta.mkdir()
-    monkeypatch.setattr(store, "GALLERY_DIR", gallery)
-    monkeypatch.setattr(store, "EXPORT_DIR", exports)
+    monkeypatch.setattr(store, "gallery_dir", lambda: gallery)
+    monkeypatch.setattr(store, "export_dir", lambda: exports)
     (gallery / "img-one.png").write_bytes(b"png")
     (meta / "one.json").write_text(json.dumps({"id": "one", "file": "img-one.png", "prompt": "test"}))
 
@@ -157,9 +156,9 @@ def test_clear_plugin_data_requires_scoped_flags(tmp_path: Path, monkeypatch: py
     (handoffs / "last.json").write_text("{}")
     (objects / "one.png").write_bytes(b"x")
     index.write_text(json.dumps([{ "id": "one", "file": "one.png" }]))
-    monkeypatch.setattr(store, "HANDOFFS_DIR", handoffs)
-    monkeypatch.setattr(store, "OBJECTS_DIR", objects)
-    monkeypatch.setattr(store, "OBJECTS_INDEX", index)
+    monkeypatch.setattr(store, "handoffs_dir", lambda: handoffs)
+    monkeypatch.setattr(store, "objects_dir", lambda: objects)
+    monkeypatch.setattr(store, "objects_index", lambda: index)
 
     deleted = store.clear_plugin_data(handoffs=True, subjects=True)
 
@@ -173,9 +172,9 @@ def test_subject_open_kind_and_multi_angle(tmp_path: Path, monkeypatch: pytest.M
     objects = tmp_path / "objects"
     index = tmp_path / "objects.json"
     objects.mkdir()
-    monkeypatch.setattr(store, "OBJECTS_DIR", objects)
-    monkeypatch.setattr(store, "OBJECTS_INDEX", index)
-    monkeypatch.setattr(store, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(store, "objects_dir", lambda: objects)
+    monkeypatch.setattr(store, "objects_index", lambda: index)
+    monkeypatch.setattr(store, "data_dir", lambda: tmp_path)
 
     primary = store.object_add("a.png", b"primary-bytes", name="Box", kind="packaging_box")
     assert primary["kind"] == "packaging-box" or primary["kind"] == "packaging_box" or "packaging" in primary["kind"]
@@ -202,67 +201,6 @@ def test_model_family_addendum() -> None:
     assert family["id"] == "grok"
 
 
-def test_nous_portal_catalog_contract() -> None:
-    from dashboard import nous_portal
-
-    models = nous_portal.list_models()
-    assert len(models) == 8
-    for entry in models:
-        assert entry["id"].startswith("fal-ai/")
-        assert entry["display"]
-        assert "capabilities" in entry
-    assert nous_portal.get_model("fal-ai/ideogram/v4/instant")["display"] == "Ideogram V4 Instant"
-    assert nous_portal.get_model("unknown-model") == {}
-    # list_models must return copies, not the pinned catalog itself
-    models[0]["id"] = "mutated"
-    assert nous_portal.list_models()[0]["id"] != "mutated"
-
-
-def test_nous_portal_generation_rejects_refs_and_requires_login(monkeypatch: pytest.MonkeyPatch) -> None:
-    from dashboard import gen_service, nous_portal
-
-    with pytest.raises(RuntimeError) as exc_info:
-        gen_service._generate_nous_portal(
-            model="fal-ai/ideogram/v4/instant",
-            prompt="a red bicycle",
-            reference_images=["/tmp/ref.png"],
-        )
-    assert exc_info.value.code == "refs.model_unsupported"
-    assert exc_info.value.params == {"model": "fal-ai/ideogram/v4/instant", "provider": "nous"}
-
-    monkeypatch.setattr(nous_portal, "nous_portal_available", lambda: False)
-    with pytest.raises(RuntimeError) as exc_info:
-        gen_service._generate_nous_portal(model="fal-ai/ideogram/v4/instant", prompt="a red bicycle")
-    assert exc_info.value.code == "provider.unavailable"
-    assert exc_info.value.params == {"provider": "nous"}
-
-
-def test_nous_portal_generation_routes_submit(monkeypatch: pytest.MonkeyPatch) -> None:
-    from dashboard import gen_service, nous_portal
-
-    monkeypatch.setattr(nous_portal, "nous_portal_available", lambda: True)
-    calls = []
-
-    def fake_submit(model: str, arguments, **_):
-        calls.append((model, dict(arguments)))
-        return {"images": [{"url": f"https://cdn.example/{model}"}]}
-
-    monkeypatch.setattr(nous_portal, "submit", fake_submit)
-    result = gen_service._generate_nous_portal(
-        model="fal-ai/bytedance/seedream/v5/pro/text-to-image",
-        prompt="a red bicycle",
-        aspect_ratio="4:5",
-        seed=7,
-        num_images=1,
-    )
-
-    assert result["provider"] == "nous"
-    assert result["images"] == ["https://cdn.example/fal-ai/bytedance/seedream/v5/pro/text-to-image"]
-    assert calls[0][1]["prompt"] == "a red bicycle"
-    assert calls[0][1]["aspect_ratio"] == "4:5"
-    assert calls[0][1]["seed"] == 7
-
-
 def test_nous_family_profiles_resolve() -> None:
     assert model_profiles.resolve_family(provider="nous", model="fal-ai/alibaba/qwen-image-3/text-to-image")["id"] == "qwen"
     assert model_profiles.resolve_family(provider="nous", model="fal-ai/recraft/v4.1/text-to-image")["id"] == "recraft"
@@ -279,7 +217,7 @@ def test_resolve_family_uses_model_tokens_over_provider() -> None:
 
 
 def test_to_natural_language_preserves_prompt_with_negatives() -> None:
-    from dashboard.prompt_builder import _to_natural_language
+    from imagegen_engine.prompt_builder import _to_natural_language
 
     # Regression: a --no flag without --ar wiped the whole prompt.
     out = _to_natural_language("product shot, --no text", {"aspectRatio": "4:5"})
@@ -297,7 +235,7 @@ def test_to_natural_language_preserves_prompt_with_negatives() -> None:
 
 
 def test_composition_intent_with_short_interpretations_does_not_crash() -> None:
-    from dashboard.prompt_builder import _build_from_composition_intent
+    from imagegen_engine.prompt_builder import _build_from_composition_intent
 
     config = {
         "compositionIntent": {
@@ -329,7 +267,7 @@ def test_parse_num_images_caps_at_max_generations() -> None:
 
 
 def test_safe_model_id_rejects_url_tokens() -> None:
-    from dashboard.gen_service import _safe_model_id
+    from imagegen_engine.gen_service import _safe_model_id
 
     assert _safe_model_id("fal-ai/flux-2-pro/edit") == "fal-ai/flux-2-pro/edit"
     for bad in ("../x", "a?b", "a#b", "a b", "..", "x:y"):
@@ -338,7 +276,7 @@ def test_safe_model_id_rejects_url_tokens() -> None:
 
 
 def test_job_cancel_aborts_running_generation() -> None:
-    from dashboard import gen_service, jobs
+    from imagegen_engine import gen_service, jobs
 
     progress = []
 
@@ -364,19 +302,19 @@ def test_job_cancel_aborts_running_generation() -> None:
 # ---------------------------------------------------------------------------
 
 def _imported_dashboard_modules(module: object) -> set[str]:
-    """Every sibling ``dashboard`` module this one imports, deferred ones included."""
+    """Every sibling ``imagegen_engine`` module this one imports, deferred ones included."""
     tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             parent = node.module or ""
-            if parent == "dashboard":
+            if parent == "imagegen_engine":
                 found.update(alias.name for alias in node.names)
-            elif parent.startswith("dashboard."):
+            elif parent.startswith("imagegen_engine."):
                 found.add(parent.split(".")[1])
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name.startswith("dashboard."):
+                if alias.name.startswith("imagegen_engine."):
                     found.add(alias.name.split(".")[1])
     return found
 

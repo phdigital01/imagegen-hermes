@@ -6,7 +6,7 @@ import types
 
 import pytest
 
-from dashboard import gen_service, image_input
+from imagegen_engine import gen_service, image_input
 
 
 def test_generated_images_cache_is_an_allowed_source(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

@@ -4,7 +4,7 @@
  * `/api/plugins/imagegen/*`. Uses React Query for caching and polling.
  */
 
-import { queryClient, type PluginRestOptions, type PluginStorage } from '@hermes/plugin-sdk'
+import { queryClient, type PluginOs, type PluginRestOptions, type PluginStorage } from '@hermes/plugin-sdk'
 import { translateActive } from './i18n'
 
 export { queryClient }
@@ -47,13 +47,28 @@ let restFn: ((path: string, opts?: PluginRestOptions) => Promise<unknown>) | nul
 /** Namespaced storage for the plugin. */
 let storage: PluginStorage | null = null
 
-/** Bind the ctx.rest and ctx.storage handles at plugin register time. */
+/** OS capabilities of the Desktop SDK (reveal in the file manager). */
+let os: PluginOs | null = null
+
+/** Bind the ctx.rest, ctx.storage and ctx.os handles at plugin register time. */
 export function bindApi(
   rest: (path: string, opts?: PluginRestOptions) => Promise<unknown>,
-  store: PluginStorage
+  store: PluginStorage,
+  osHandle: PluginOs
 ): void {
   restFn = rest
   storage = store
+  os = osHandle
+}
+
+/** Show a file in Explorer / Finder; false when the shell cannot. */
+export async function revealPath(path: string): Promise<boolean> {
+  if (!os) return false
+  try {
+    return Boolean(await os.revealPath(path))
+  } catch {
+    return false
+  }
 }
 
 /** A backend failure that carried a stable code; `message` is already localized. */

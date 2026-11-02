@@ -7,7 +7,7 @@ Owns everything that produces pixels and everything that can cost money:
 - upscale / bg-remove / magnific: auxiliary image operations
 - reference publishing, cost estimation, and the spend guard (`check_budget`)
 
-Prompt writing and vision analysis live in ``dashboard/llm_service.py``; this
+Prompt writing and vision analysis live in ``imagegen_engine/llm_service.py``; this
 module never calls an LLM.
 """
 from __future__ import annotations
@@ -25,8 +25,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from dashboard import billing, image_input, store
-from dashboard.errors import (
+from imagegen_engine import billing, image_input, store
+from imagegen_engine.errors import (
     BUDGET_EXCEEDED,
     ImageGenError,
     MODEL_INVALID,
@@ -187,36 +187,26 @@ def retry_transient(operation, *, label: str, attempts: int = 3, base_delay: flo
 # ---------------------------------------------------------------------------
 
 def _fal_key() -> Optional[str]:
-    from dashboard import credentials
+    from imagegen_engine import credentials
 
     return credentials.fal_key() or None
 
 
-def _managed_gateway_active() -> bool:
-    """True when the Nous Tool Gateway (managed fal-queue) resolves.
-
-    A paid Nous Portal subscription routes FAL calls through the managed
-    gateway, so FAL-backed plugin paths work without a FAL_KEY.
-    """
-    try:
-        from tools.managed_tool_gateway import resolve_managed_tool_gateway
-
-        return resolve_managed_tool_gateway("fal-queue") is not None
-    except Exception:  # noqa: BLE001 — host modules absent in tests
-        return False
+def _no_fal_key_error(feature: str = "This FAL feature") -> ImageGenError:
+    """Direct FAL calls need a FAL key; a Nous Portal login only reaches Hermes's own fal provider."""
+    return ImageGenError(
+        PROVIDER_UNAVAILABLE,
+        f"{feature} needs a FAL key. With a Nous Portal subscription, FAL text-to-image "
+        "runs through Hermes (Tools -> Image Generation) with the model set there.",
+        provider="fal",
+    )
 
 
 def _fal_sync_client():
-    """Synchronous FAL client — uses the Hermes one (fal_client) when installed."""
+    """Synchronous FAL client for the direct key (fal_client, installed with Hermes)."""
     key = _fal_key()
     if not key:
-        from tools.managed_tool_gateway import resolve_managed_tool_gateway
-        from tools.image_generation_tool import _get_managed_fal_client
-
-        gateway = resolve_managed_tool_gateway("fal-queue")
-        if gateway is None:
-            return None
-        return _get_managed_fal_client(gateway)
+        return None
     try:
         import fal_client
 
@@ -259,27 +249,21 @@ def fal_submit_sync(model: str, arguments: Dict[str, Any], *, cancel: Any = None
                     on_submit: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
     """Submit a job to FAL synchronously (uses the Hermes infra)."""
     _safe_model_id(model)
-    key = _fal_key()
-    if not key and not _managed_gateway_active():
-        raise ImageGenError(
-            PROVIDER_UNAVAILABLE,
-            "The FAL provider is unavailable: no FAL_KEY configured and the "
-            "Nous Portal Tool Gateway is not active",
-            provider="fal",
-        )
+    if not _fal_key():
+        raise _no_fal_key_error()
     client = _fal_sync_client()
     if client is None:
         raise ImageGenError(PROVIDER_UNAVAILABLE, "The FAL client is unavailable", provider="fal")
     try:
         _check_cancel(cancel)
-        handle = billing.run("fal" if key else "nous", model, _fal_cost(model, arguments) if key else None,
+        handle = billing.run("fal", model, _fal_cost(model, arguments),
             lambda: client.submit(model, arguments=arguments, headers={"x-idempotency-key": str(uuid.uuid4())}))
         if isinstance(handle, dict):
             return handle
         rid = getattr(handle, "request_id", "")
         if on_submit and rid:
             on_submit({
-                "provider": "fal" if key else "nous", "model": model, "endpoint": model,
+                "provider": "fal", "model": model, "endpoint": model,
                 "requestId": str(rid), "responseUrl": str(getattr(handle, "response_url", "")),
                 "statusUrl": str(getattr(handle, "status_url", "")),
             })
@@ -304,15 +288,7 @@ def fal_upload_image(image_b64_or_path: str, filename: str = "image.png") -> str
     """
     key = _fal_key()
     if not key:
-        if _managed_gateway_active():
-            from dashboard import nous_portal
-
-            return nous_portal.upload_reference(image_b64_or_path)
-        raise ImageGenError(
-            PROVIDER_UNAVAILABLE,
-            "The FAL provider is unavailable: no FAL_KEY configured",
-            provider="fal",
-        )
+        raise _no_fal_key_error("Reference images on FAL")
 
     kind, data = image_input.resolve_image_source(image_b64_or_path)
     if kind == "url":
@@ -443,15 +419,7 @@ def fal_queue_poll(model: str, payload: Dict[str, Any], timeout_s: float = 300.0
     _safe_model_id(model)
     key = _fal_key()
     if not key:
-        if _managed_gateway_active():
-            # Nous Portal subscription routes the queue through the managed
-            # gateway — the host client submits and polls for us.
-            return fal_submit_sync(model, payload, cancel=cancel, on_submit=on_submit)
-        raise ImageGenError(
-            PROVIDER_UNAVAILABLE,
-            "The FAL provider is unavailable: no FAL_KEY configured",
-            provider="fal",
-        )
+        raise _no_fal_key_error()
     import urllib.request
 
     body = json.dumps(payload).encode()
@@ -658,7 +626,7 @@ def _resolution_to_pixels(resolution: str, aspect_ratio: str) -> Dict[str, int]:
 def _reference_model_hint(provider: str, provider_obj: Any) -> str:
     """List up to 4 sibling models that accept references (error hint)."""
     try:
-        from dashboard.capabilities import resolve_capabilities
+        from imagegen_engine.capabilities import resolve_capabilities
 
         picks = []
         for entry in (provider_obj.list_models() or []):
@@ -710,7 +678,7 @@ def generate_text_to_image(
 ) -> Dict[str, Any]:
     """Generate per provider and use references when the model accepts them.
 
-    Direct backends (magnific, nous, vertex) come from the
+    Direct backends (magnific, vertex) come from the
     ``_PROVIDER_BACKENDS`` registry; every other provider is served by the
     Hermes registered providers or the native FAL catalog (see
     ``_generate_via_registered_or_fal``). Read the registry docstring for the
@@ -721,13 +689,6 @@ def generate_text_to_image(
     refs = [str(v).strip() for v in (reference_images or []) if str(v).strip()]
 
     backend = _PROVIDER_BACKENDS.get(provider)
-    # A "nous" model id outside the managed Nous Portal catalog falls through
-    # to the registered Nous Portal provider (OpenRouter-backed, refs-capable).
-    if provider == "nous":
-        from dashboard import nous_portal
-
-        if not nous_portal.get_model(model):
-            backend = None
     if backend is None:
         result = _generate_via_registered_or_fal(
             provider=provider,
@@ -774,14 +735,16 @@ def _generate_via_registered_or_fal(
     on_submit: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     """Fallback text-to-image path: registered Hermes providers, then native FAL."""
-    # Provider registered in Hermes (openai, openai-codex, xai, krea, deepinfra, openrouter...)
-    if provider != "fal":
+    # Provider registered in Hermes (openai, openai-codex, xai, krea, deepinfra, openrouter, nous...).
+    # Without a FAL key, "fal" is Hermes's own fal provider: it picks the Nous managed gateway for an
+    # entitled account and runs the model set in Hermes.
+    if provider != "fal" or not _fal_key():
         try:
             from agent.image_gen_registry import get_provider
 
             # Make sure the Hermes image_gen/* plugins are registered
             try:
-                from dashboard.providers_catalog import _ensure_providers_registered
+                from imagegen_engine.providers_catalog import _ensure_providers_registered
 
                 _ensure_providers_registered()
             except Exception:  # noqa: BLE001
@@ -800,7 +763,7 @@ def _generate_via_registered_or_fal(
                     f"The provider '{provider}' is unavailable (missing credentials?)",
                     provider=provider,
                 )
-            from dashboard.capabilities import resolve_capabilities
+            from imagegen_engine.capabilities import resolve_capabilities
 
             # Check BY SELECTED MODEL — the global Hermes model may accept refs
             # when the model chosen in the selector does not.
@@ -873,8 +836,8 @@ def _generate_via_registered_or_fal(
 
     # Native FAL — Hermes catalog (central get_fal_model_meta); other FAL models
     # are built from FAL's own published schema.
-    from dashboard import fal_catalog
-    from dashboard.providers_catalog import get_fal_model_meta
+    from imagegen_engine import fal_catalog
+    from imagegen_engine.providers_catalog import get_fal_model_meta
 
     if not get_fal_model_meta(model) and fal_catalog.knows(model):
         model_meta = {}
@@ -888,7 +851,7 @@ def _generate_via_registered_or_fal(
 
 def _fal_catalog_request(model, prompt, aspect_ratio, resolution, seed, negative_prompt, refs):
     """Endpoint and payload for a FAL model outside the Hermes catalog, from FAL's schema."""
-    from dashboard import fal_catalog
+    from imagegen_engine import fal_catalog
 
     endpoint = model
     if refs:
@@ -902,12 +865,12 @@ def _fal_catalog_request(model, prompt, aspect_ratio, resolution, seed, negative
 def _fal_hermes_request(model, prompt, aspect_ratio, resolution, seed, negative_prompt, refs):
     """Endpoint and payload from the Hermes FAL catalog, or a manual payload without it."""
     try:
-        from dashboard.providers_catalog import get_fal_model_meta
+        from imagegen_engine.providers_catalog import get_fal_model_meta
         from tools.image_generation_tool import (
             _build_fal_edit_payload,
             _build_fal_payload,
         )
-        from dashboard.capabilities import resolve_capabilities
+        from imagegen_engine.capabilities import resolve_capabilities
 
         model_meta = get_fal_model_meta(model)
         # Same rule as the rest of the pipeline: caps per (provider, model).
@@ -1008,73 +971,6 @@ def _run_fal_generation(model, model_meta, endpoint, payload, *, refs, num_image
         "modality": "image" if refs else "text",
         "references_used": len(refs),
         "cost_estimate": cost_estimate,
-    }
-
-
-def _generate_nous_portal(
-    *,
-    provider: str = "nous",
-    model: str,
-    prompt: str,
-    aspect_ratio: str = "1:1",
-    seed: Optional[int] = None,
-    negative_prompt: Optional[str] = None,
-    num_images: int = 1,
-    resolution: str = "1K",
-    reference_images: Optional[List[str]] = None,
-    cancel: Optional[Callable[[], bool]] = None,
-    on_submit: Optional[Callable[[Dict[str, Any]], None]] = None,
-) -> Dict[str, Any]:
-    """Generate via Nous Portal (managed Tool Gateway — subscription, no FAL_KEY).
-
-    Registry backend for the ``nous`` provider (see ``_PROVIDER_BACKENDS``).
-    """
-    num_images = min(MAX_GENERATIONS, max(1, int(num_images)))
-    from dashboard import nous_portal
-
-    if reference_images:
-        raise ImageGenError(REFS_MODEL_UNSUPPORTED, "This Nous Portal model does not accept references", model=model, provider="nous")
-    if not nous_portal.nous_portal_available():
-        raise ImageGenError(
-            PROVIDER_UNAVAILABLE,
-            "Nous Portal is not connected — sign in to the Nous Portal (`hermes setup`) "
-            "or configure FAL_KEY to use FAL.ai directly.",
-            provider="nous",
-        )
-
-    meta = nous_portal.get_model(model)
-    arguments: Dict[str, Any] = {"prompt": prompt, "aspect_ratio": aspect_ratio}
-    if negative_prompt and _model_supports_negative(model):
-        arguments["negative_prompt"] = negative_prompt
-    arguments.update(meta.get("extra_args") or {})
-
-    images: List[str] = []
-    for i in range(num_images):
-        _check_cancel(cancel)
-        call_args = dict(arguments)
-        if seed is not None:
-            try:
-                call_args["seed"] = int(seed) + (i if num_images > 1 else 0)
-            except (TypeError, ValueError):
-                pass
-        result = nous_portal.submit(model, call_args, on_submit=on_submit, cancel=cancel)
-        found = _extract_images(result)
-        if not found:
-            raise ImageGenError(
-                MODEL_NO_IMAGE,
-                f"Nous Portal did not return an image for {model}",
-                model=model,
-                provider="nous",
-            )
-        images.extend(found[:1])
-
-    return {
-        "images": images,
-        "provider": "nous",
-        "model": model,
-        "modality": "text",
-        "references_used": 0,
-        "cost_estimate": None,
     }
 
 
@@ -1201,7 +1097,7 @@ def _estimate_cost(model: str, meta: Dict[str, Any], num_images: int, payload: O
 
 
 def _fal_cost(model: str, payload: Dict[str, Any]) -> Optional[float]:
-    from dashboard.providers_catalog import get_fal_model_meta
+    from imagegen_engine.providers_catalog import get_fal_model_meta
     return _estimate_cost(model, get_fal_model_meta(model), int(payload.get("num_images") or 1), payload)
 
 
@@ -1247,7 +1143,7 @@ def generate_edit(
     FLUX.2 Pro Edit keeps its pinned payload; any other FAL edit model is built
     from FAL's published schema for that endpoint.
     """
-    from dashboard import fal_catalog
+    from imagegen_engine import fal_catalog
 
     seed = _validate_seed(seed)
     _check_cancel(cancel)
@@ -1401,7 +1297,7 @@ def _generate_vertex(
 
     Gemini takes no seed or negative prompt; references travel inline with the request.
     """
-    from dashboard import vertex_api
+    from imagegen_engine import vertex_api
 
     spec = vertex_api.MODELS.get(model)
     if spec is None:
@@ -1424,7 +1320,7 @@ def _generate_vertex(
 
 
 def _magnific_available() -> bool:
-    from dashboard.magnific_api import api_key
+    from imagegen_engine.magnific_api import api_key
 
     return bool(api_key())
 
@@ -1436,7 +1332,7 @@ def generate_magnific(
     on_submit: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     """Generate through the direct Magnific API."""
-    from dashboard import magnific_api
+    from imagegen_engine import magnific_api
 
     _check_cancel(cancel)
     return magnific_api.generate(
@@ -1465,7 +1361,7 @@ def _generate_magnific(
     Wraps :func:`generate_magnific` with the shared keyword-only signature and
     the contract return shape, including per-model reference editing.
     """
-    from dashboard.magnific_catalog import get_model
+    from imagegen_engine.magnific_catalog import get_model
     spec = get_model(model)
     refs = prepare_reference_sources("magnific", model, reference_images or [], max_refs=spec.get("maxReferences", 0))
     images: List[str] = []
@@ -1515,6 +1411,5 @@ ProviderBackend = Callable[..., Dict[str, Any]]
 
 _PROVIDER_BACKENDS: Dict[str, ProviderBackend] = {
     "magnific": _generate_magnific,
-    "nous": _generate_nous_portal,
     "vertex": _generate_vertex,
 }

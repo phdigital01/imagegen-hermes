@@ -45,7 +45,7 @@ NATURAL_LANG_MODELS = {
 # ---------------------------------------------------------------------------
 
 def _family_for_config(config: Dict[str, Any] | None, model_id: str = "", provider: str = "") -> Dict[str, Any]:
-    from dashboard.model_profiles import resolve_family
+    from imagegen_engine.model_profiles import resolve_family
 
     cfg = config or {}
     prov = str(provider or cfg.get("provider") or cfg.get("selectedProvider") or "").strip()
@@ -469,7 +469,7 @@ def _get_auto_negative(subject_type: str, genre: str = "") -> str:
     base = DEFAULT_NEGATIVES.get(subject_type, GENERIC_NEGATIVE)
     if genre:
         try:
-            from dashboard.presets import GENRES
+            from imagegen_engine.presets import GENRES
 
             g = next((x for x in GENRES if x["id"] == genre), None)
             if g and g.get("negative"):
@@ -520,7 +520,7 @@ def format_for_tool(base_prompt: Any, model_id: str = "", config: Dict[str, Any]
     provider_val = str(provider or cfg.get("provider") or cfg.get("selectedProvider") or "")
     model_val = str(model_id or cfg.get("model") or cfg.get("selectedModel") or cfg.get("toolTarget") or "")
 
-    from dashboard.model_profiles import resolve_family
+    from imagegen_engine.model_profiles import resolve_family
 
     family = resolve_family(provider_val, model_val)
     negative_mode = str(family.get("negative_mode") or "separate")

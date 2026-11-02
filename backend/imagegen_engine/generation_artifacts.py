@@ -8,8 +8,8 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from dashboard import gen_service, image_input, store
-from dashboard.model_profiles import build_intent
+from imagegen_engine import gen_service, image_input, store
+from imagegen_engine.model_profiles import build_intent
 
 logger = logging.getLogger(__name__)
 resolve_served_image = image_input.resolve_served_image
@@ -30,7 +30,7 @@ def save_generation_artifacts(body: Dict[str, Any], result: Dict[str, Any]) -> D
     config = deepcopy(body.get("config") or {})
     config.update({"provider": provider, "selectedModel": model})
     if provider == "magnific":
-        from dashboard.magnific_catalog import generation_model
+        from imagegen_engine.magnific_catalog import generation_model
         config["selectedModel"] = generation_model(model)
     for field in ("aspectRatio", "seed", "negativePrompt", "resolution"):
         if field in body:

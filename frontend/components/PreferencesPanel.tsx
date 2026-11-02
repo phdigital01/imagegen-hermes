@@ -3,7 +3,7 @@
  * These rarely change, so they stay out of the screens where images are made.
  */
 
-import { Button, Codicon, Input, queryClient, useQuery } from '@hermes/plugin-sdk'
+import { Button, Input, queryClient, useQuery } from '@hermes/plugin-sdk'
 import { useEffect, useState } from 'react'
 
 import { ID, clearPluginData, fetchOutputFolder, saveOutputFolder } from '../api'
@@ -32,35 +32,16 @@ export function PreferencesPanel({ config, updateConfig, langChoice, onLang, onD
     if (outputFolderQuery.data) setOutputFolder(outputFolderQuery.data.path || '')
   }, [outputFolderQuery.data])
 
-  const save = async (value = outputFolder) => {
+  const save = async () => {
     setSaving(true)
     setError('')
     try {
-      await saveOutputFolder(value.trim())
+      await saveOutputFolder(outputFolder.trim())
       await outputFolderQuery.refetch()
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : t('outputFolderSaveFailed'))
     } finally {
       setSaving(false)
-    }
-  }
-
-  const choose = async () => {
-    const bridge = (window as Window & {
-      hermesDesktop?: {
-        selectPaths?: (options?: { directories?: boolean; multiple?: boolean }) => Promise<string[]>
-      }
-    }).hermesDesktop
-    if (!bridge?.selectPaths) return
-    try {
-      const paths = await bridge.selectPaths({ directories: true, multiple: false })
-      const selected = paths?.[0]?.trim()
-      if (selected) {
-        setOutputFolder(selected)
-        await save(selected)
-      }
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : t('outputFolderSaveFailed'))
     }
   }
 
@@ -83,7 +64,6 @@ export function PreferencesPanel({ config, updateConfig, langChoice, onLang, onD
         <FieldLabel hint={t('outputFolderHint')}>{t('outputFolder')}</FieldLabel>
         <div className="flex gap-2">
           <Input value={outputFolder} placeholder="C:\Users\you\Pictures\ImageGen" className="h-8 flex-1 text-xs font-mono" onChange={(event) => setOutputFolder(event.target.value)} />
-          <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" disabled={saving} onClick={() => void choose()}><Codicon name="folder-opened" style={{ fontSize: 12 }} />{t('chooseFolder')}</Button>
           <Button size="sm" className="h-8 text-xs" disabled={saving} onClick={() => void save()}>{saving ? t('saving') : t('saveFolder')}</Button>
         </div>
         {error && <div className="text-[10.5px] text-red-500">{error}</div>}

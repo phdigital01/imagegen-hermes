@@ -7,8 +7,8 @@ import time
 
 import pytest
 
-from dashboard import fal_catalog, magnific_api, providers_catalog
-from dashboard.errors import ImageGenError
+from imagegen_engine import fal_catalog, magnific_api, providers_catalog
+from imagegen_engine.errors import ImageGenError
 
 
 @pytest.fixture
@@ -91,7 +91,7 @@ def test_skin_enhancer_polls_the_shared_task_path():
 
 
 def test_precision_v2_upscale_and_prompt_helpers(sent, monkeypatch):
-    from dashboard import store
+    from imagegen_engine import store
 
     monkeypatch.setattr(store, "fetch_image_bytes", lambda source: b"raw")
     _run(magnific_api.upscale, "i.png", mode="precision-v2", scale=8, flavor="photo")
@@ -106,7 +106,7 @@ def test_precision_v2_upscale_and_prompt_helpers(sent, monkeypatch):
 def test_inpaint_inverts_the_painted_mask(sent, monkeypatch):
     from PIL import Image
 
-    from dashboard import store
+    from imagegen_engine import store
 
     def png(color):
         buffer = io.BytesIO()
@@ -185,7 +185,7 @@ def test_provider_list_adds_catalog_models_once_and_edit_models(catalog):
 
 
 def test_fal_catalog_capabilities_use_cached_schema(catalog):
-    from dashboard.capabilities import resolve_capabilities
+    from imagegen_engine.capabilities import resolve_capabilities
 
     assert resolve_capabilities("fal", "acme/poster")["maxReferences"] == 3
     assert resolve_capabilities("fal", "acme/solo")["maxReferences"] == 0
@@ -209,7 +209,7 @@ def test_a_failed_task_says_the_providers_reason(monkeypatch: pytest.MonkeyPatch
 
 
 def test_a_result_served_as_generic_binary_is_accepted_when_its_bytes_are_an_image(monkeypatch: pytest.MonkeyPatch) -> None:
-    from dashboard import image_input
+    from imagegen_engine import image_input
 
     class Response(io.BytesIO):
         headers = {"Content-Type": "application/octet-stream"}

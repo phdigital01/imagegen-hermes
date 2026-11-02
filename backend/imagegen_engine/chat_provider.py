@@ -23,7 +23,7 @@ _RATIOS = {"landscape": "16:9", "square": "1:1", "portrait": "9:16"}
 
 def _catalog():
     # Imported on use, so registering the provider stays light.
-    from dashboard import providers_catalog
+    from imagegen_engine import providers_catalog
 
     return providers_catalog
 
@@ -33,7 +33,7 @@ class ImageGenChatProvider(ImageGenProvider):
 
     @property
     def name(self) -> str:
-        from dashboard.providers_catalog import SELF_PROVIDER
+        from imagegen_engine.providers_catalog import SELF_PROVIDER
 
         return SELF_PROVIDER
 
@@ -89,10 +89,10 @@ class ImageGenChatProvider(ImageGenProvider):
         reference_image_urls: Optional[List[str]] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        from dashboard import image_input
-        from dashboard.errors import ImageGenError
-        from dashboard.generation_artifacts import InlineJob, build_generation_job
-        from dashboard.providers_catalog import _hermes_image_setting, resolve_target
+        from imagegen_engine import image_input
+        from imagegen_engine.errors import ImageGenError
+        from imagegen_engine.generation_artifacts import InlineJob, build_generation_job
+        from imagegen_engine.providers_catalog import _hermes_image_setting, resolve_target
 
         aspect = resolve_aspect_ratio(aspect_ratio)
         prompt = (prompt or "").strip()
@@ -143,12 +143,12 @@ def _card_hint(gallery_id: str) -> Dict[str, str]:
 
 
 def image_input_safe(value: str) -> bool:
-    from dashboard import image_input
+    from imagegen_engine import image_input
 
     return bool(value) and image_input.is_safe_id(value)
 
 
 def _announce_gallery() -> None:
-    from dashboard.events import announce
+    from imagegen_engine.events import announce
 
     announce("gallery.changed", {})

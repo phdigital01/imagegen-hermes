@@ -3,14 +3,14 @@
 The Hermes web server imports ``dashboard/plugin_api.py`` as a top-level
 module (``spec_from_file_location``, no parent package), so relative imports
 break. This module keeps the ``sys.path`` bootstrap first — before any
-``dashboard.*`` import — and every router in ``dashboard/routes/*`` is built
+``imagegen_engine.*`` import — and every router in ``imagegen_engine/routes/*`` is built
 through :func:`make_router` so the structured error envelope
 (``{ok: False, error: {code, message}}``) applies to every route.
 
 Ownership map:
 
 - ``api_core`` — error envelope, route base class, URL helpers, thread
-  offloader, ``make_router`` factory, ``DATA_DIR`` snapshot.
+  offloader, ``make_router`` factory.
 - ``providers_catalog`` — provider registration/listing and profile env.
 - ``generation_artifacts`` — gallery/history persistence + job builders.
 - ``routes/*`` — one router per domain; ``plugin_api`` aggregates them.
@@ -25,8 +25,8 @@ from typing import Any, Dict, List
 # The web server imports the plugin file as a top-level module
 # (spec_from_file_location, no parent package) — relative imports (``.``)
 # break with "attempted relative import with no known parent package".
-# We make sure the dashboard/ package parent directory is on sys.path
-# and use absolute ``dashboard.*`` imports.
+# We make sure the imagegen_engine/ package parent directory is on sys.path
+# and use absolute ``imagegen_engine.*`` imports.
 _DASH_PARENT = Path(__file__).resolve().parent.parent
 if str(_DASH_PARENT) not in sys.path:
     sys.path.insert(0, str(_DASH_PARENT))
@@ -35,8 +35,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
-from dashboard import store
-from dashboard.errors import ImageGenError
+from imagegen_engine import store
+from imagegen_engine.errors import ImageGenError
 
 logger = logging.getLogger(__name__)
 
@@ -128,11 +128,6 @@ def coerce_body(body: Any) -> Dict[str, Any]:
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="invalid body")
     return body
-
-
-# DATA_DIR comes from store's profile-owned plugin-data root. It is independent
-# of the Git install layout and survives updates and removal of the package.
-DATA_DIR = store.DATA_DIR
 
 
 def _absolute(request: Request, url: str) -> str:

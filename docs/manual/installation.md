@@ -48,7 +48,7 @@ The link opens the Desktop confirmation dialog; it does not install silently.
 
 - Root `plugin.yaml` and `__init__.py` identify the native backend package.
 - `dashboard/manifest.json` points to a small entry bridge; all API source
-  remains under `backend/dashboard/`.
+  lives in the `backend/imagegen_engine/` package.
 - `desktop/plugin.js` is a single ESM bundle. It contains the compiled UI,
   translations, Tailwind utilities, and custom styles. It imports only the
   host's `@hermes/plugin-sdk`, `react`, and `react/jsx-runtime` singletons.

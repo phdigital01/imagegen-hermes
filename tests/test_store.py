@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from dashboard import store
-from dashboard.gen_service import retry_transient
+from imagegen_engine import store
+from imagegen_engine.gen_service import retry_transient
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
@@ -20,14 +20,7 @@ def _png(tag: bytes) -> bytes:
 
 @pytest.fixture
 def isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(store, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(store, "GALLERY_DIR", tmp_path / "gallery")
-    monkeypatch.setattr(store, "REFS_DIR", tmp_path / "gallery" / "refs")
-    monkeypatch.setattr(store, "OBJECTS_DIR", tmp_path / "objects")
-    monkeypatch.setattr(store, "HISTORY_FILE", tmp_path / "history.json")
-    monkeypatch.setattr(store, "LIBRARY_FILE", tmp_path / "library.json")
-    monkeypatch.setattr(store, "SETTINGS_FILE", tmp_path / "settings.json")
-    store._ensure()
+    monkeypatch.setattr(store, "data_dir", lambda: tmp_path)
     return tmp_path
 
 
@@ -44,10 +37,10 @@ def test_gallery_prunes_old_files_and_metadata(isolated_store: Path, monkeypatch
     monkeypatch.setattr(store, "GALLERY_CAP", 2)
     for index in range(3):
         entry = store.save_gallery_entry(_png(f"image-{index}".encode()), {"ts": index, "prompt": str(index)})
-        assert (store.GALLERY_DIR / entry["file"]).exists()
+        assert (store.gallery_dir() / entry["file"]).exists()
 
-    records = list((store.GALLERY_DIR / ".meta").glob("*.json"))
-    images = [path for path in store.GALLERY_DIR.glob("*.png") if path.is_file()]
+    records = list((store.gallery_dir() / ".meta").glob("*.json"))
+    images = [path for path in store.gallery_dir().glob("*.png") if path.is_file()]
     assert len(records) == 2
     assert len(images) == 2
     prompts = {json.loads(path.read_text(encoding="utf-8"))["prompt"] for path in records}
@@ -65,7 +58,7 @@ def test_retry_transient_retries_only_transient_failures(monkeypatch: pytest.Mon
             raise OSError("temporary network failure")
         return "ok"
 
-    monkeypatch.setattr("dashboard.gen_service.time.sleep", sleeps.append)
+    monkeypatch.setattr("imagegen_engine.gen_service.time.sleep", sleeps.append)
     assert retry_transient(flaky_operation, label="test", base_delay=0.01) == "ok"
     assert calls == 3
     assert sleeps == [0.01, 0.02]
@@ -105,8 +98,8 @@ def test_safe_entry_id_rejects_traversal(isolated_store: Path, entry_id: str) ->
 
 def test_handoff_id_rejects_traversal(isolated_store: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     handoffs = isolated_store / "handoffs"
-    monkeypatch.setattr(store, "HANDOFFS_DIR", handoffs)
-    monkeypatch.setattr(store, "HANDOFF_LAST_FILE", handoffs / "last.json")
+    monkeypatch.setattr(store, "handoffs_dir", lambda: handoffs)
+    monkeypatch.setattr(store, "handoff_last_file", lambda: handoffs / "last.json")
     with pytest.raises(ValueError):
         store.save_handoff({"generationId": "../../outside"})
     with pytest.raises(ValueError):
@@ -122,8 +115,8 @@ def test_gallery_metadata_rejects_traversal(isolated_store: Path) -> None:
 def test_handoffs_are_capped(isolated_store: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import os
     handoffs = isolated_store / "handoffs"
-    monkeypatch.setattr(store, "HANDOFFS_DIR", handoffs)
-    monkeypatch.setattr(store, "HANDOFF_LAST_FILE", handoffs / "last.json")
+    monkeypatch.setattr(store, "handoffs_dir", lambda: handoffs)
+    monkeypatch.setattr(store, "handoff_last_file", lambda: handoffs / "last.json")
     for index in range(5):
         store.save_handoff({"generationId": f"gen-{index}", "prompt": str(index)})
     # Distinct mtimes so pruning is deterministic (same-second writes tie).
@@ -143,8 +136,8 @@ def test_exports_are_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     exports = tmp_path / "exports"
     gallery.mkdir()
     meta.mkdir()
-    monkeypatch.setattr(store, "GALLERY_DIR", gallery)
-    monkeypatch.setattr(store, "EXPORT_DIR", exports)
+    monkeypatch.setattr(store, "gallery_dir", lambda: gallery)
+    monkeypatch.setattr(store, "export_dir", lambda: exports)
     (gallery / "img.png").write_bytes(b"png")
     for index, entry_id in enumerate(("one", "two", "three")):
         (meta / f"{entry_id}.json").write_text(json.dumps({"id": entry_id, "file": "img.png"}))
@@ -224,8 +217,8 @@ def test_delete_gallery_entry_strips_history_references(isolated_store: Path) ->
     assert entry["gallery_ids"] == ["g-2"]
     assert [ge["id"] for ge in entry["gallery_entries"]] == ["g-2"]
     assert entry["images"] == ["https://a/img2.png"]
-    assert not (store.GALLERY_DIR / first["file"]).exists()
-    assert (store.GALLERY_DIR / second["file"]).exists()
+    assert not (store.gallery_dir() / first["file"]).exists()
+    assert (store.gallery_dir() / second["file"]).exists()
 
 
 def test_feed_delete_cascades_history_and_gallery(isolated_store: Path) -> None:
@@ -257,8 +250,8 @@ def test_feed_delete_cascades_history_and_gallery(isolated_store: Path) -> None:
     # Deleting a generated entry removes the history row and its gallery files.
     assert store.feed_delete("h1") == 1
     assert [h["id"] for h in store.get_history(50)] == ["h2"]
-    assert not (store.GALLERY_DIR / owned["file"]).exists()
-    assert not (store.GALLERY_DIR / ".meta" / "g-owned.json").exists()
+    assert not (store.gallery_dir() / owned["file"]).exists()
+    assert not (store.gallery_dir() / ".meta" / "g-owned.json").exists()
 
     items = store.feed_list()
     pairs = [(item["id"], item["source"]) for item in items]
@@ -277,7 +270,7 @@ def test_feed_delete_cascades_history_and_gallery(isolated_store: Path) -> None:
 
     # Deleting a saved-only id cascades to its gallery files.
     assert store.feed_delete("g-orphan") == 1
-    assert not (store.GALLERY_DIR / saved["file"]).exists()
+    assert not (store.gallery_dir() / saved["file"]).exists()
     assert store.feed_delete("g-orphan") == 0
 
 
@@ -336,10 +329,10 @@ def test_add_history_concurrent_writes_keep_both(isolated_store: Path) -> None:
 def test_corrupt_json_is_quarantined_not_overwritten(isolated_store: Path, caplog: pytest.LogCaptureFixture) -> None:
     import logging
 
-    history = store.HISTORY_FILE
+    history = store.history_file()
     history.write_text("{ definitely not json !!!", encoding="utf-8")
 
-    with caplog.at_level(logging.ERROR, logger="dashboard.store"):
+    with caplog.at_level(logging.ERROR, logger="imagegen_engine.store"):
         entries = store.get_history(10)
 
     assert entries == []

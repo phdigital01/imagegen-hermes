@@ -11,7 +11,7 @@ import io
 import math
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from dashboard import gen_service, image_input, store
+from imagegen_engine import gen_service, image_input, store
 
 # The sizes GPT Image and other Hermes providers deliver: the source is padded to the nearest one.
 _CANVASES = (("2:3", 2 / 3), ("1:1", 1.0), ("3:2", 3 / 2))

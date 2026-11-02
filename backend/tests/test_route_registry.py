@@ -1,6 +1,6 @@
 """Route registry contract for the ImageGen plugin API.
 
-The plugin surface is split across ``dashboard/routes/*`` and aggregated into
+The plugin surface is split across ``imagegen_engine/routes/*`` and aggregated into
 ``plugin_api.router``. Two invariants must hold forever:
 
 1. The (method, path) set mounted on ``plugin_api.router`` is EXACTLY the
@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import pytest
 
-from dashboard import plugin_api
-from dashboard.routes import generation, jobs, library, llm, media, system
+from imagegen_engine import plugin_api
+from imagegen_engine.routes import generation, jobs, library, llm, media, system
 
 # Ground truth captured from the pre-split single-file router. Order in this
 # list is irrelevant (compared sorted); it pins the exact surface so a lost

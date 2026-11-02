@@ -10,8 +10,8 @@ from typing import Any, Dict, List
 from fastapi import Body, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from dashboard import gen_service, llm_service, store
-from dashboard.api_core import coerce_body, _abs_subject, make_router
+from imagegen_engine import gen_service, llm_service, store
+from imagegen_engine.api_core import coerce_body, _abs_subject, make_router
 
 router = make_router()
 
@@ -38,7 +38,7 @@ async def subjects_kinds() -> Dict[str, Any]:
 async def objects_file(filename: str) -> Any:
     """Serve the file of a library subject/angle."""
     safe = Path(filename).name
-    p = store.OBJECTS_DIR / safe
+    p = store.objects_dir() / safe
     if not p.exists():
         raise HTTPException(status_code=404, detail="Subject not found")
     return FileResponse(p, media_type=store.image_media_type(p.name))
@@ -49,7 +49,7 @@ async def objects_file(filename: str) -> Any:
 async def objects_import(body: Any = Body(None)) -> Dict[str, Any]:
     body = coerce_body(body)
     """Import photos into the subject library (+ passport). Supports open kind + dedupe."""
-    from dashboard import jobs
+    from imagegen_engine import jobs
 
     folder = str(body.get("folder", "")).strip()
     paths = [str(p) for p in (body.get("paths") or []) if str(p).strip()]

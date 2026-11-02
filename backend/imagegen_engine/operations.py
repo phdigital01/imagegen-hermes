@@ -3,8 +3,8 @@ from copy import deepcopy
 
 from fastapi import HTTPException
 
-from dashboard import edit_merge, gen_service, magnific_api
-from dashboard.generation_artifacts import build_generation_job, save_generation_artifacts
+from imagegen_engine import edit_merge, gen_service, magnific_api
+from imagegen_engine.generation_artifacts import build_generation_job, save_generation_artifacts
 
 RETRY_KINDS = {"generate", "vary", "edit", "inpaint", "outpaint", "upscale", "bg-remove", "magnific", "relight", "style-transfer",
                "camera", "skin"}

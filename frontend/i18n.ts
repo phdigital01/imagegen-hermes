@@ -165,7 +165,6 @@ interface Messages {
   outputFolder: string
   outputFolderHint: string
   saveFolder: string
-  chooseFolder: string
   outputFolderReady: string
   outputFolderUnavailable: string
   outputFolderSaveFailed: string
@@ -498,7 +497,6 @@ const en: Messages = {
   outputFolder: 'Output folder',
   outputFolderHint: 'Generated images remain in the internal gallery and are also copied to this folder.',
   saveFolder: 'Save folder',
-  chooseFolder: 'Choose folder',
   outputFolderReady: 'Output folder is ready.',
   outputFolderUnavailable: 'Output folder is not writable.',
   outputFolderSaveFailed: 'Could not save the output folder.',
@@ -994,7 +992,6 @@ const pt: Messages = {
   outputFolder: 'Pasta de salvamento',
   outputFolderHint: 'As imagens continuam na galeria interna e também são copiadas para esta pasta.',
   saveFolder: 'Salvar pasta',
-  chooseFolder: 'Escolher pasta',
   outputFolderReady: 'A pasta de salvamento está pronta.',
   outputFolderUnavailable: 'A pasta de salvamento não pode ser gravada.',
   outputFolderSaveFailed: 'Não foi possível salvar a pasta de salvamento.',
@@ -1490,7 +1487,6 @@ const es: Messages = {
   outputFolder: 'Carpeta de guardado',
   outputFolderHint: 'Las imágenes permanecen en la galería interna y también se copian a esta carpeta.',
   saveFolder: 'Guardar carpeta',
-  chooseFolder: 'Elegir carpeta',
   outputFolderReady: 'La carpeta de guardado está lista.',
   outputFolderUnavailable: 'No se puede escribir en la carpeta de guardado.',
   outputFolderSaveFailed: 'No se pudo guardar la carpeta de guardado.',
@@ -1986,7 +1982,6 @@ const zh: Messages = {
   outputFolder: '输出文件夹',
   outputFolderHint: '图像仍会保存在内部图库，也会复制到此文件夹。',
   saveFolder: '保存文件夹',
-  chooseFolder: '选择文件夹',
   outputFolderReady: '输出文件夹已准备好。',
   outputFolderUnavailable: '无法写入输出文件夹。',
   outputFolderSaveFailed: '无法保存输出文件夹。',

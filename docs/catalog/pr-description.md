@@ -46,24 +46,21 @@ local monthly budget. The UI follows the Hermes app language (en, pt, es, zh).
   blocks unknown prices while a limit is set.
 - Network: prompts and reference images go to the chosen provider:
   `queue.fal.run` and `fal.run` (including reference uploads),
-  `api.magnific.com`, `aiplatform.googleapis.com` (Vertex AI), the Nous Portal
-  tool gateway, or the Hermes image
-  provider's endpoint.
+  `api.magnific.com`, `aiplatform.googleapis.com` (Vertex AI), or the Hermes image
+  provider's endpoint (Hermes's own gateway for a Nous Portal subscription).
 - Optional MCP server: `backend/mcp_server.py` exposes generation to the agent
   only if the user adds it to `mcp_servers` by hand.
 - Command line: `backend/imagegen_cli.py` runs one generation, or a parallel
   batch with `--batch`, only when someone runs it; each job is billed like a click on
   Generate. The README warns about provider and subscription limits on parallel use.
 - Private host imports (rule 9 warning): to list and call the Hermes image
-  providers, the Nous gateway and the FAL catalog, the plugin imports
-  `agent.image_gen_registry`, `tools.managed_tool_gateway`,
-  `tools.image_generation_tool` (`_build_fal_payload`,
-  `_build_fal_edit_payload`, `_get_managed_fal_client`),
-  `tools.tool_backend_helpers`, `hermes_cli.plugins.discover_plugins` and
-  `hermes_cli.env_loader` (command line only).
-  `providers_catalog.py` calls `register_provider` so bundled `image_gen`
-  providers are available to the dashboard process. I would welcome public
-  seams for these and can open issues for them.
+  providers and read the FAL catalog, the plugin imports
+  `agent.image_gen_registry`, `tools.image_generation_tool` (`FAL_MODELS`,
+  `_build_fal_payload`, `_build_fal_edit_payload`),
+  `hermes_cli.plugins.discover_plugins` and `hermes_cli.env_loader`
+  (command line only). It never registers providers itself: it runs Hermes's
+  plugin discovery and only reads the registry. A FAL request without
+  `FAL_KEY` goes through `get_provider("fal").generate`.
 
 ## Validation
 

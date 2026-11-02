@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from dashboard import jobs, store
-from dashboard.errors import JOB_INTERRUPTED
+from imagegen_engine import jobs, store
+from imagegen_engine.errors import JOB_INTERRUPTED
 
 _RECORD_KEYS = {
     "id", "kind", "status", "created", "started", "finished", "message",
@@ -26,9 +26,8 @@ _RECORD_KEYS = {
 @pytest.fixture
 def isolated_job_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the store at tmp_path and make the job file deterministic."""
-    monkeypatch.setattr(store, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(store, "JOBS_FILE", tmp_path / "jobs.json")
-    store._ensure()
+    monkeypatch.setattr(store, "data_dir", lambda: tmp_path)
+    monkeypatch.setattr(store, "jobs_file", lambda: tmp_path / "jobs.json")
     return tmp_path
 
 
@@ -232,18 +231,18 @@ def test_jobs_file_cap_never_prunes_active_records(isolated_job_store: Path) -> 
 
 
 def test_missing_jobs_file_does_not_break_import(isolated_job_store: Path) -> None:
-    assert not store.JOBS_FILE.exists()
+    assert not store.jobs_file().exists()
     module = _reload_jobs()
     assert module.manager.list() == []
     assert store.load_job_records() == []
 
 
 def test_corrupt_jobs_file_does_not_break_import(isolated_job_store: Path) -> None:
-    store.JOBS_FILE.write_text("{this is not valid json !!!", encoding="utf-8")
+    store.jobs_file().write_text("{this is not valid json !!!", encoding="utf-8")
     module = _reload_jobs()
     assert module.manager.list() == []
     # _read_json quarantined the broken file instead of returning it.
-    assert not store.JOBS_FILE.exists()
+    assert not store.jobs_file().exists()
     assert store.load_job_records() == []
 
 
@@ -267,7 +266,7 @@ def test_fal_resume_waits_for_a_request_still_running(monkeypatch: pytest.Monkey
     import json as _json
     from urllib.error import HTTPError
 
-    from dashboard import gen_service
+    from imagegen_engine import gen_service
 
     statuses = ["IN_QUEUE", "IN_PROGRESS", "COMPLETED"]
     seen: list[str] = []
@@ -295,8 +294,8 @@ def test_fal_errors_carry_the_provider_reason(monkeypatch: pytest.MonkeyPatch) -
     import io
     from urllib.error import HTTPError
 
-    from dashboard import gen_service
-    from dashboard.errors import ImageGenError
+    from imagegen_engine import gen_service
+    from imagegen_engine.errors import ImageGenError
 
     def locked(request, timeout=None):
         body = io.BytesIO(b'{"detail":"User is locked. Reason: Exhausted balance."}')

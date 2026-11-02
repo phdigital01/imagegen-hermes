@@ -9,10 +9,10 @@ from typing import Any, Dict
 
 from fastapi import Body, HTTPException, Request
 
-from dashboard import gen_service
-from dashboard.api_core import _abs_images, _imagegen_error_http, _to_thread, make_router
-from dashboard.errors import ImageGenError
-from dashboard.generation_artifacts import (
+from imagegen_engine import gen_service
+from imagegen_engine.api_core import _abs_images, _imagegen_error_http, _to_thread, make_router
+from imagegen_engine.errors import ImageGenError
+from imagegen_engine.generation_artifacts import (
     parse_num_images,
     save_generation_artifacts,
 )
@@ -24,14 +24,14 @@ router = make_router()
 
 @router.get("/jobs")
 async def jobs_list() -> Dict[str, Any]:
-    from dashboard import jobs
+    from imagegen_engine import jobs
 
     return {"jobs": jobs.manager.list()}
 
 
 @router.get("/jobs/{job_id}")
 async def jobs_status(job_id: str) -> Dict[str, Any]:
-    from dashboard import jobs
+    from imagegen_engine import jobs
 
     job = jobs.manager.get(job_id)
     if job is None:
@@ -41,7 +41,7 @@ async def jobs_status(job_id: str) -> Dict[str, Any]:
 
 @router.get("/jobs/{job_id}/result")
 async def jobs_result(request: Request, job_id: str) -> Dict[str, Any]:
-    from dashboard import jobs
+    from imagegen_engine import jobs
 
     job = jobs.manager.get(job_id)
     if job is None:
@@ -59,7 +59,7 @@ async def jobs_result(request: Request, job_id: str) -> Dict[str, Any]:
 
 @router.post("/jobs/{job_id}/cancel")
 async def jobs_cancel(job_id: str) -> Dict[str, Any]:
-    from dashboard import jobs
+    from imagegen_engine import jobs
 
     job = jobs.manager.get(job_id)
     if job is None:
@@ -70,12 +70,12 @@ async def jobs_cancel(job_id: str) -> Dict[str, Any]:
 
 @router.post("/jobs/{job_id}/retry")
 async def jobs_retry(job_id: str) -> Dict[str, Any]:
-    from dashboard import jobs
+    from imagegen_engine import jobs
 
     previous = jobs.manager.get(job_id)
     if previous is None:
         raise HTTPException(status_code=404, detail="job not found")
-    from dashboard.operations import build_operation
+    from imagegen_engine.operations import build_operation
     if not previous.to_dict().get("retryable"):
         raise HTTPException(409, "Recover pending provider results before starting another request")
     payload = deepcopy(previous.payload)
@@ -95,7 +95,7 @@ async def jobs_retry(job_id: str) -> Dict[str, Any]:
 @router.post("/jobs/{job_id}/resume")
 async def jobs_resume(job_id: str) -> Dict[str, Any]:
     """Retrieve accepted requests only; never submit generation during recovery."""
-    from dashboard import jobs, magnific_api, nous_portal
+    from imagegen_engine import jobs, magnific_api
 
     if jobs.manager.get(job_id) is None:
         raise HTTPException(404, {"code": "job.not_found", "message": "Job not found"})
@@ -113,8 +113,6 @@ async def jobs_resume(job_id: str) -> Dict[str, Any]:
             model = remote.get("endpoint") or remote.get("model", "")
             if provider == "magnific":
                 result = await _to_thread(magnific_api.fetch_result, remote["requestId"], model)
-            elif provider == "nous":
-                result = await _to_thread(nous_portal.fetch_result, model, remote["requestId"], remote.get("responseUrl", ""))
             elif provider == "fal":
                 result = await _to_thread(gen_service.fal_fetch_result, model, remote["requestId"], remote.get("responseUrl", ""))
             else:
@@ -167,7 +165,7 @@ async def jobs_submit(request: Request, body: Any = Body(None)) -> Dict[str, Any
     Accepts a dict or a JSON string (the desktop frontend serializes the body
     to avoid DataCloneError in the Electron bridge).
     """
-    from dashboard import jobs
+    from imagegen_engine import jobs
 
     if isinstance(body, str):
         try:
@@ -177,7 +175,7 @@ async def jobs_submit(request: Request, body: Any = Body(None)) -> Dict[str, Any
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="invalid body")
 
-    from dashboard.operations import build_operation
+    from imagegen_engine.operations import build_operation
     kind = body.get("kind", "generate")
     job = jobs.manager.submit(kind, build_operation(kind, body), payload=body)
     return job.to_dict()

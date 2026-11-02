@@ -214,7 +214,7 @@ const plugin: HermesPlugin = {
   name: 'ImageGen',
   defaultEnabled: true,
   register(ctx) {
-    bindApi(ctx.rest, ctx.storage)
+    bindApi(ctx.rest, ctx.storage, ctx.os)
     ctx.onEvent('plugin.imagegen.job.changed', (event) => {
       const change = (event as { payload?: JobChange }).payload
       if (!change?.id) return

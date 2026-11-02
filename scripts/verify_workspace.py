@@ -113,7 +113,7 @@ def main() -> int:
             if path.suffix in FORBIDDEN_SUFFIXES or path.name == ".env" or path.name.endswith(".env"):
                 errors.append(f"Generated or secret file in repository: {path.relative_to(ROOT)}")
 
-    required = (ROOT / "frontend", ROOT / "backend" / "dashboard", ROOT / "tests")
+    required = (ROOT / "frontend", ROOT / "backend" / "imagegen_engine", ROOT / "backend" / "dashboard", ROOT / "tests")
     for path in required:
         if not path.is_dir():
             errors.append(f"Missing required directory: {path.relative_to(ROOT)}")

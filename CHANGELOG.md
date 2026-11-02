@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.4.0
+
+Changes asked in the Hermes plugin catalog review.
+
+- Providers: the plugin no longer loads or registers Hermes's image providers itself. It runs
+  Hermes's plugin discovery once and only reads `agent.image_gen_registry`.
+- Nous subscription: FAL without a key now runs through Hermes's own `fal` provider, with the model
+  set in Hermes. The plugin no longer builds the managed gateway client. Queue resume and reference
+  uploads on FAL need a `FAL_KEY` and say so when it is missing. The pinned Portal catalog is gone.
+- Desktop: "Show in folder" uses the SDK's `ctx.os.revealPath`. The output folder is a typed field;
+  the folder picker button is gone.
+- Package: the backend engine is now `imagegen_engine`, so it cannot clash with another plugin's
+  `dashboard` package. `dashboard/plugin_api.py` stays as the Hermes entry.
+- Storage: the data folder and the Hermes home are resolved on each call, so a profile switch takes
+  effect without a restart.
+
 ## 1.3.0
 
 - Access: a linked subscription or a Hermes provider with a key now counts as connected. Before,

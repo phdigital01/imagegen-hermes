@@ -4,8 +4,8 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional, TypeVar
 
-from dashboard import store
-from dashboard.errors import ImageGenError, MODEL_INVALID, PROVIDER_UNAVAILABLE
+from imagegen_engine import store
+from imagegen_engine.errors import ImageGenError, MODEL_INVALID, PROVIDER_UNAVAILABLE
 
 T = TypeVar("T")
 logger = logging.getLogger(__name__)

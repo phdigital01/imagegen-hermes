@@ -10,8 +10,8 @@ from typing import Any, Dict
 from fastapi import Body, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from dashboard import image_input, store
-from dashboard.api_core import _abs_images, _absolute, _to_thread, coerce_body, make_router
+from imagegen_engine import image_input, store
+from imagegen_engine.api_core import _abs_images, _absolute, _to_thread, coerce_body, make_router
 
 router = make_router()
 
@@ -42,8 +42,8 @@ async def upload_image(request: Request, body: Any = Body(None)) -> Dict[str, An
 async def reference_file(filename: str) -> FileResponse:
     """Serve a persisted reference without keeping dataURLs in localStorage."""
     safe_name = Path(filename).name
-    path = (store.REFS_DIR / safe_name).resolve()
-    if path.parent != store.REFS_DIR.resolve() or not path.is_file():
+    path = (store.refs_dir() / safe_name).resolve()
+    if path.parent != store.refs_dir().resolve() or not path.is_file():
         raise HTTPException(status_code=404, detail="reference not found")
     return FileResponse(str(path), media_type=store.image_media_type(safe_name))
 
@@ -195,7 +195,7 @@ async def gallery_export_pack(request: Request, entry_id: str) -> Dict[str, Any]
 @router.get("/exports/{filename}")
 async def export_file(filename: str) -> FileResponse:
     safe = Path(filename).name
-    path = store.EXPORT_DIR / safe
+    path = store.export_dir() / safe
     if not path.exists():
         raise HTTPException(status_code=404, detail="Export not found")
     return FileResponse(str(path), media_type="application/zip", filename=safe)

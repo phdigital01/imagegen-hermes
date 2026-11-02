@@ -6,7 +6,7 @@ import types
 
 import pytest
 
-from dashboard import events
+from imagegen_engine import events
 
 
 def test_announce_is_a_noop_outside_the_gateway(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -12,7 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from dashboard.errors import ImageGenError, MODEL_INVALID, MODEL_NO_IMAGE, PROVIDER_FAILED, PROVIDER_UNAVAILABLE
+from imagegen_engine.errors import ImageGenError, MODEL_INVALID, MODEL_NO_IMAGE, PROVIDER_FAILED, PROVIDER_UNAVAILABLE
 
 PROVIDER = "vertex"
 API_ROOT = "https://aiplatform.googleapis.com/v1"
@@ -37,7 +37,7 @@ _PROMPT_USD = 0.002
 
 def credentials() -> tuple[str, str]:
     """(api key, project id); the project is optional for express-mode keys."""
-    from dashboard import credentials as creds
+    from imagegen_engine import credentials as creds
 
     return creds.vertex_key(), creds.vertex_project()
 

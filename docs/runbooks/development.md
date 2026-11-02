@@ -129,7 +129,7 @@ The backend sync creates a rollback snapshot in `.snapshots/`. It does not copy 
 
 The plugin exposes its engine to the Hermes agent as MCP tools over stdio, so
 the agent can generate with the plugin's provider catalog (capabilities
-resolved by `dashboard.capabilities.resolve_capabilities`), its subject
+resolved by `imagegen_engine.capabilities.resolve_capabilities`), its subject
 library and its reference pipeline instead of the host's generic image tool.
 
 - Source of truth: `backend/mcp_server.py` (canonical). `sync_backend.py`

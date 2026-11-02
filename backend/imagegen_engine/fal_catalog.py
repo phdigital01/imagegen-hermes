@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from dashboard.errors import ImageGenError, MODEL_INVALID, PROVIDER_FAILED, REFS_MODEL_UNSUPPORTED
+from imagegen_engine.errors import ImageGenError, MODEL_INVALID, PROVIDER_FAILED, REFS_MODEL_UNSUPPORTED
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +40,9 @@ _refresh: Dict[str, Any] = {"thread": None, "failed_at": 0.0}
 
 
 def _cache_file(name: str):
-    from dashboard import store
+    from imagegen_engine import store
 
-    return store.DATA_DIR / name
+    return store.data_dir() / name
 
 
 def _read_json(name: str) -> Dict[str, Any]:
@@ -62,7 +62,7 @@ def _write_json(name: str, data: Dict[str, Any]) -> None:
 
 
 def _get(params: Dict[str, Any]) -> Dict[str, Any]:
-    from dashboard import credentials
+    from imagegen_engine import credentials
 
     headers = {"Accept": "application/json"}
     key = credentials.fal_key()
@@ -113,7 +113,7 @@ def refresh() -> bool:
     with _lock:
         _memory["catalog"] = catalog
         _write_json("fal-catalog.json", catalog)
-    from dashboard.events import announce
+    from imagegen_engine.events import announce
 
     announce("providers.changed", {"provider": "fal"})
     return True
@@ -287,7 +287,7 @@ def build_payload(endpoint: str, *, prompt: str, aspect_ratio: Optional[str] = N
                   seed: Optional[int] = None, negative_prompt: Optional[str] = None,
                   image_urls: Optional[List[str]] = None) -> Dict[str, Any]:
     """Map ImageGen's inputs onto one FAL model's documented fields."""
-    from dashboard.gen_service import _resolution_to_pixels
+    from imagegen_engine.gen_service import _resolution_to_pixels
 
     input_schema = schema(endpoint)
     fields = input_schema["properties"]

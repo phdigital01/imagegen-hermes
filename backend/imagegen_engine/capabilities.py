@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Mapping, Optional
 
-from dashboard.model_profiles import capabilities_for_model
+from imagegen_engine.model_profiles import capabilities_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ _FAL_META_KEYS = ("edit_endpoint", "max_reference_images", "upscale")
 def get_fal_model_meta(model: str) -> Dict[str, Any]:
     """Central FAL catalog accessor — delegates to providers_catalog."""
     try:
-        from dashboard.providers_catalog import get_fal_model_meta as _central
+        from imagegen_engine.providers_catalog import get_fal_model_meta as _central
 
         return _central(model)
     except Exception as exc:  # noqa: BLE001
@@ -52,21 +52,10 @@ def _fal_catalog_meta(model: str) -> Dict[str, Any]:
     return get_fal_model_meta(model)
 
 
-def _is_portal_catalog_model(model: str) -> bool:
-    """True when ``model`` is a pinned Nous Portal catalog id."""
-    try:
-        from dashboard import nous_portal
-
-        return bool(nous_portal.get_model(model))
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("nous_portal unavailable: %s", exc)
-        return False
-
-
 def _fal_catalog_knows(model: str) -> bool:
     """True when FAL's cached public catalog lists ``model``."""
     try:
-        from dashboard import fal_catalog
+        from imagegen_engine import fal_catalog
 
         return fal_catalog.knows(model)
     except Exception as exc:  # noqa: BLE001
@@ -167,19 +156,16 @@ def resolve_capabilities(
     meta.pop("referenceImages", None)
     try:
         if provider == "magnific":
-            from dashboard.magnific_catalog import get_model
+            from imagegen_engine.magnific_catalog import get_model
             entry = get_model(model)
             max_refs = entry.get("maxReferences", 0)
             extra: Dict[str, Any] = {"edit": bool(max_refs), "negativeMode": "unsupported",
                                      "resolutions": entry.get("resolutionOptions", [])}
         elif provider == "vertex":
-            from dashboard import vertex_api
+            from imagegen_engine import vertex_api
             spec = vertex_api.MODELS.get(model, {})
             max_refs = spec.get("maxReferences", 0)
             extra = {"edit": bool(max_refs), "negativeMode": "unsupported", "resolutions": list(spec.get("resolutions", ()))}
-        elif provider == "nous" and _is_portal_catalog_model(model):
-            max_refs = 0
-            extra = {}
         elif provider in ("fal", "nous"):
             fal_meta = get_fal_model_meta(model)
             if fal_meta:
@@ -191,45 +177,12 @@ def resolve_capabilities(
                 # FAL's own catalog: cached schemas only, so listing never waits on the
                 # network. Without a cached schema an edit sibling allows one reference;
                 # the UI then asks /providers/fal/model for the exact limit.
-                from dashboard import fal_catalog
+                from imagegen_engine import fal_catalog
 
                 found = fal_catalog.details(model, fetch=False)
                 sibling = fal_catalog.edit_sibling(model)
                 max_refs = found.get("maxReferences", 1 if sibling else 0)
                 extra = {"edit": bool(max_refs)}
-            elif provider == "nous":
-                # Nous portal catalog is authoritative for its own ids — consult
-                # its per-model capabilities before falling to 0.
-                try:
-                    from dashboard import nous_portal
-
-                    portal_entry = nous_portal.get_model(model)
-                    portal_caps = (portal_entry or {}).get("capabilities") or {}
-                    if portal_entry and portal_caps:
-                        # portal caps use maxReferences
-                        if "maxReferences" in portal_caps:
-                            max_refs = int(portal_caps.get("maxReferences") or 0)
-                        elif "max_reference_images" in portal_caps:
-                            max_refs = int(portal_caps.get("max_reference_images") or 0)
-                        else:
-                            max_refs = 0
-                        extra = {}
-                    elif _is_portal_catalog_model(model):
-                        max_refs = 0
-                        extra = {}
-                    elif provider_obj is not None:
-                        max_refs = _provider_ref_cap(provider_obj, model)
-                        extra = {}
-                    else:
-                        max_refs = 0
-                        extra = {}
-                except Exception:
-                    if provider_obj is not None:
-                        max_refs = _provider_ref_cap(provider_obj, model)
-                        extra = {}
-                    else:
-                        max_refs = 0
-                        extra = {}
             elif provider_obj is not None:
                 max_refs = _provider_ref_cap(provider_obj, model)
                 extra = {}

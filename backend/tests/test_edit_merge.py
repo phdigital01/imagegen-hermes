@@ -5,7 +5,7 @@ import random
 
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter
 
-from dashboard import edit_merge
+from imagegen_engine import edit_merge
 
 _AREAS = [(100, 100, 300, 300), (700, 150, 950, 350), (150, 800, 400, 1100), (700, 850, 950, 1100), (450, 450, 650, 650)]
 

@@ -14,8 +14,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen, build_opener
 
-from dashboard.errors import ImageGenError, MODEL_INVALID, MODEL_NO_IMAGE, PROVIDER_FAILED, PROVIDER_UNAVAILABLE
-from dashboard.magnific_catalog import EXPAND_MODELS, MODELS, OPERATIONS, TASK_PATHS, get_model
+from imagegen_engine.errors import ImageGenError, MODEL_INVALID, MODEL_NO_IMAGE, PROVIDER_FAILED, PROVIDER_UNAVAILABLE
+from imagegen_engine.magnific_catalog import EXPAND_MODELS, MODELS, OPERATIONS, TASK_PATHS, get_model
 
 API_URL = "https://api.magnific.com/v1/ai/"
 MODEL_ID = "mystic"
@@ -41,7 +41,7 @@ EMPTY_RESULT_POLLS = 15
 
 
 def api_key() -> str:
-    from dashboard import credentials
+    from imagegen_engine import credentials
 
     return credentials.magnific_key()
 
@@ -152,7 +152,7 @@ def generate(
 
 def _public_image_url(source, *, check_cancel=lambda: None, background=False):
     """Upload local bytes through Magnific; signed URLs are never persisted."""
-    from dashboard import image_input, store
+    from imagegen_engine import image_input, store
 
     value = image_input.resolve_served_image(source)
     if value.startswith("https://") and not background:
@@ -197,7 +197,7 @@ def _public_image_url(source, *, check_cancel=lambda: None, background=False):
 
 def _base64_image(source, *, seedream=False):
     from PIL import Image
-    from dashboard import store, image_input
+    from imagegen_engine import store, image_input
 
     data = store.fetch_image_bytes(source)
     mime = image_input.detect_mime(data)
@@ -214,7 +214,7 @@ def _base64_image(source, *, seedream=False):
 
 def _submit_and_poll(model, payload, *, check_cancel, sleep, on_submit=None, text=False):
     """Submit once and poll; ``text`` tasks (prompt helpers) return words, not image URLs."""
-    from dashboard import billing
+    from imagegen_engine import billing
 
     key = api_key()
     if not key:
@@ -276,7 +276,7 @@ def upscale(image: str, *, mode="classic", scale=2, creativity=0.4, prompt="", f
     import base64
     import io
     from PIL import Image
-    from dashboard import store
+    from imagegen_engine import store
 
     data = store.fetch_image_bytes(image)
     payload = {"image": base64.b64encode(data).decode("ascii")}
@@ -299,7 +299,7 @@ def edit_operation(kind, body, *, check_cancel, sleep, on_submit=None):
     """Operation-specific payloads; all asynchronous edits share job recovery."""
     common = {"check_cancel": check_cancel, "sleep": sleep, "on_submit": on_submit}
     if kind == "bg-remove":
-        from dashboard import billing
+        from imagegen_engine import billing
         key = api_key()
         if not key:
             raise ImageGenError(PROVIDER_UNAVAILABLE, "Add the Magnific API key in Hermes Settings > Plugins > ImageGen", provider="magnific")
@@ -352,7 +352,7 @@ def edit_operation(kind, body, *, check_cancel, sleep, on_submit=None):
 def _inverted_mask(image, mask):
     """Ideogram edits the black part of its mask; the ImageGen brush paints the area white."""
     from PIL import Image, ImageOps
-    from dashboard import store
+    from imagegen_engine import store
 
     with Image.open(io.BytesIO(store.fetch_image_bytes(image))) as source:
         scene = ImageOps.exif_transpose(source)

@@ -102,7 +102,7 @@ optional and live in **Settings → Plugins → ImageGen**:
 
 | Setting | Variable | Enables |
 |---|---|---|
-| FAL API key | `FAL_KEY` | FAL models without a Nous Portal subscription |
+| FAL API key | `FAL_KEY` | Every FAL model, reference images and queue recovery on FAL. Without it, a Nous Portal subscription runs FAL text-to-image through Hermes, with the model set in Hermes |
 | Magnific API key | `MAGNIFIC_API_KEY` | Magnific generation, upscale, relight and background removal |
 | Vertex AI API key | `VERTEX_API_KEY` | Gemini image generation on Google Cloud Vertex AI |
 | Vertex AI project ID | `VERTEX_PROJECT` | The project for a key bound to a service account |
@@ -130,8 +130,8 @@ Read this before you install.
   limit is set.
 - **Network calls.** Prompts and reference images go to the provider you pick:
   `queue.fal.run` and `fal.run` (FAL, including reference uploads),
-  `api.magnific.com` (Magnific), `aiplatform.googleapis.com` (Vertex AI), the Nous Portal tool gateway, or the endpoint
-  of the Hermes image provider. A linked ChatGPT subscription is reached only
+  `api.magnific.com` (Magnific), `aiplatform.googleapis.com` (Vertex AI), or the endpoint
+  of the Hermes image provider (for a Nous Portal subscription, Hermes's own gateway). A linked ChatGPT subscription is reached only
   through that Hermes provider, so ImageGen never sees its sign-in token. Prompt
   writing and image reading go to your
   active Hermes model. Once a day ImageGen also reads FAL's public model list
@@ -144,8 +144,8 @@ Read this before you install.
   it under **Tools → Image Generation**. Its results tell the model it may add
   an `::imagegen-image{id="…"}` line, which Desktop shows as ImageGen's Edit
   and gallery buttons.
-- **Host integration.** To list and call the Hermes image providers, the Nous
-  Portal gateway and the FAL catalog, ImageGen imports a few Hermes modules
+- **Host integration.** To list and call the Hermes image providers and read
+  the FAL catalog, ImageGen imports a few Hermes modules
   that are not yet public plugin APIs. A Hermes update can change them and
   break those providers until ImageGen is updated.
 - **Optional MCP server.** `backend/mcp_server.py` exposes generation to the

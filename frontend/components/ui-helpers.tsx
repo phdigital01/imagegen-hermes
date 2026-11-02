@@ -9,7 +9,7 @@ import { useEffect, useId, useState, type ComponentType, type ReactNode } from '
 // Resolved by scripts/build_plugin.mjs: thumbnail name -> embedded data URL.
 import BUNDLED_THUMBS from 'imagegen:thumbs'
 
-import { fetchImageDataUrl } from '../api'
+import { fetchImageDataUrl, revealPath } from '../api'
 
 
 export function bundledThumbUrl(file: string): string {
@@ -259,15 +259,7 @@ export function displayUrl(item: ImageSource | null | undefined): string {
 export async function revealInFolder(path?: string): Promise<boolean> {
   const target = (path || '').trim()
   if (!target) return false
-  const bridge = (window as Window & {
-    hermesDesktop?: { revealPath?: (value: string) => Promise<boolean> }
-  }).hermesDesktop
-  if (!bridge?.revealPath) return false
-  try {
-    return Boolean(await bridge.revealPath(target))
-  } catch {
-    return false
-  }
+  return revealPath(target)
 }
 
 /** Download a URL (handles data: URLs via blob). */

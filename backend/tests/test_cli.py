@@ -8,21 +8,17 @@ from pathlib import Path
 import pytest
 
 import imagegen_cli
-from dashboard import gen_service, generation_artifacts, providers_catalog, store
-from dashboard.errors import PROVIDER_FAILED, ImageGenError
+from imagegen_engine import gen_service, generation_artifacts, providers_catalog, store
+from imagegen_engine.errors import PROVIDER_FAILED, ImageGenError
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 
 
 @pytest.fixture
 def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    original = store.DATA_DIR
     root = tmp_path / "data"
-    monkeypatch.setattr(store, "DATA_DIR", root)
-    for name, value in list(vars(store).items()):
-        if isinstance(value, Path) and str(value).startswith(str(original)):
-            monkeypatch.setattr(store, name, root / value.relative_to(original))
-    store._ensure()
+    root.mkdir()
+    monkeypatch.setattr(store, "data_dir", lambda: root)
     return root
 
 
@@ -32,7 +28,7 @@ def _fake_job(calls: list, fail_first: int = 0):
             calls.append(body)
             if len(calls) <= fail_first:
                 raise ImageGenError(PROVIDER_FAILED, "busy", provider=body["provider"], detail="busy")
-            image = store.GALLERY_DIR / f"img-{job.id}.png"
+            image = store.gallery_dir() / f"img-{job.id}.png"
             image.write_bytes(_PNG)
             return {"images": [str(image)], "gallery_ids": [job.id], "provider": body["provider"],
                     "model": body["model"], "references_used": len(body["referenceImages"])}
@@ -57,7 +53,7 @@ def test_cli_stores_outside_references_and_keeps_earlier_files(
 
     assert code == 0
     sent = calls[0]["referenceImages"]
-    assert len(sent) == 1 and Path(sent[0]).parent == store.REFS_DIR
+    assert len(sent) == 1 and Path(sent[0]).parent == store.refs_dir()
     assert calls[0]["aspectRatio"] == "4:5" and calls[0]["config"] == {"source": "cli"}
     printed = json.loads(capsys.readouterr().out)
     assert printed["files"] == [str(out / "hero-2.png")]
@@ -86,7 +82,7 @@ def test_batch_skips_finished_jobs_and_a_failed_job_keeps_the_rest_running(
         def run(job):
             if body["prompt"] == "fail":
                 raise ImageGenError(PROVIDER_FAILED, "busy", provider=body["provider"], detail="busy")
-            image = store.GALLERY_DIR / f"img-{job.id}.png"
+            image = store.gallery_dir() / f"img-{job.id}.png"
             image.write_bytes(_PNG)
             return {"images": [str(image)], "provider": body["provider"], "model": body["model"]}
         return run
@@ -117,7 +113,7 @@ def test_batch_refuses_a_missing_reference_before_any_generation(tmp_path: Path)
 
 def test_prune_survives_a_reference_removed_by_another_process(
         data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    kept = store.REFS_DIR / "ref-kept.png"
+    kept = store.refs_dir() / "ref-kept.png"
     kept.write_bytes(_PNG)
 
     class Vanished(type(kept)):
@@ -132,9 +128,9 @@ def test_prune_survives_a_reference_removed_by_another_process(
             return True
 
         def glob(self, pattern: str) -> list:
-            return [Vanished(store.GALLERY_DIR / "ref-gone.png"), kept]
+            return [Vanished(store.gallery_dir() / "ref-gone.png"), kept]
 
-    monkeypatch.setattr(store, "REFS_DIR", Listing())
+    monkeypatch.setattr(store, "refs_dir", lambda: Listing())
     store.prune_refs(cap=5)
     assert kept.exists()
 
@@ -166,14 +162,14 @@ def test_cli_lists_providers_and_uses_a_named_provider_default_model(
 
 def test_replace_overwrites_and_batch_label_reaches_the_ledger(
         data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-    from dashboard import billing
+    from imagegen_engine import billing
 
     def build(body):
         def run(job):
             billing.run(body["provider"], body["model"], 0.5, lambda: {"success": "fail" not in body["prompt"]})
             if "fail" in body["prompt"]:
                 raise ImageGenError(PROVIDER_FAILED, "busy", provider=body["provider"], detail="busy")
-            image = store.GALLERY_DIR / f"img-{body['prompt']}.png"
+            image = store.gallery_dir() / f"img-{body['prompt']}.png"
             image.write_bytes(_PNG)
             return {"images": [str(image)], "gallery_ids": [], "provider": body["provider"], "model": body["model"]}
         return run

@@ -11,13 +11,13 @@ import logging
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
-from dashboard import gen_service
-from dashboard.model_profiles import capabilities_for_model
+from imagegen_engine import gen_service
+from imagegen_engine.model_profiles import capabilities_for_model
 
 logger = logging.getLogger(__name__)
 
-_REGISTERED_PROVIDERS = False
-_REGISTRATION_LOCK = threading.RLock()
+_DISCOVERY_DONE = False
+_DISCOVERY_LOCK = threading.Lock()
 
 
 def get_fal_model_meta(model: str) -> Dict[str, Any]:
@@ -48,74 +48,30 @@ def get_fal_model_meta(model: str) -> Dict[str, Any]:
 
 
 def _ensure_providers_registered() -> None:
-    with _REGISTRATION_LOCK:
-        _register_providers_locked()
+    """Make sure Hermes has loaded its image providers in this process.
 
-
-def _register_providers_locked() -> None:
-    """Register the Hermes image providers (plugins/image_gen/*) in the registry.
-
-    The web_server does not load these plugins automatically; we replicate the
-    agent boot: import each bundled backend and call its ``register(ctx)``
-    with a ctx stub that delegates to the global registry.
+    ImageGen never loads Hermes's bundled plugins itself: it asks the host's
+    idempotent public loader once and then only reads the registry. A process
+    that already discovered plugins (the agent, the gateway) returns at once.
     """
-    global _REGISTERED_PROVIDERS
-    if _REGISTERED_PROVIDERS:
+    global _DISCOVERY_DONE
+    if _DISCOVERY_DONE:
         return
-
-    try:
-        from hermes_cli.plugins import get_bundled_plugins_dir
-        from hermes_cli.plugins import PluginContext  # noqa: F401
-
-        bundled = get_bundled_plugins_dir()
-        import importlib.util
-        import sys
-
-        from agent.image_gen_registry import get_provider, register_provider
-
-        class _CtxStub:
-            def register_image_gen_provider(self, provider) -> None:
-                register_provider(provider)
-
-        image_gen_dir = bundled / "image_gen"
-        if not image_gen_dir.is_dir():
-            logger.warning("plugins/image_gen not found in %s", bundled)
+    with _DISCOVERY_LOCK:
+        if _DISCOVERY_DONE:
             return
+        try:
+            from hermes_cli.plugins import discover_plugins
 
-        failed = False
-        for child in sorted(image_gen_dir.iterdir()):
-            init_file = child / "__init__.py"
-            if not child.is_dir() or not init_file.exists():
-                continue
-            # Dedupe: if the agent boot already registered this provider in the
-            # registry, do not register it again (avoids double loading).
-            try:
-                if get_provider(child.name) is not None:
-                    logger.info("imagegen: provider %s already registered", child.name)
-                    continue
-            except Exception:  # noqa: BLE001
-                pass
-            try:
-                spec = importlib.util.spec_from_file_location(
-                    f"imagegen_bundled_{child.name}", init_file
-                )
-                mod = importlib.util.module_from_spec(spec)
-                sys.modules[spec.name] = mod
-                spec.loader.exec_module(mod)
-                if hasattr(mod, "register"):
-                    mod.register(_CtxStub())
-                    logger.info("imagegen: provider registered: %s", child.name)
-            except Exception as exc:  # noqa: BLE001
-                failed = True
-                logger.warning("imagegen: failed to register provider %s: %s", child.name, exc)
-        _REGISTERED_PROVIDERS = not failed
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("imagegen: _ensure_providers_registered failed: %s", exc)
+            discover_plugins()
+            _DISCOVERY_DONE = True
+        except Exception as exc:  # noqa: BLE001 - outside Hermes there is no registry
+            logger.warning("imagegen: Hermes plugin discovery failed: %s", exc)
 
 
 def _list_providers() -> List[Dict[str, Any]]:
     """List image_gen providers registered in Hermes and direct API backends."""
-    from dashboard.capabilities import resolve_capabilities
+    from imagegen_engine.capabilities import resolve_capabilities
 
     _ensure_providers_registered()
     out: List[Dict[str, Any]] = []
@@ -165,13 +121,12 @@ def _list_providers() -> List[Dict[str, Any]]:
         out.insert(0, {
             "name": "fal",
             "display_name": "FAL.ai",
-            "available": bool(gen_service._fal_key()) or gen_service._managed_gateway_active(),
+            "available": bool(gen_service._fal_key()),
             "models": fal_models,
         })
     _merge_fal_catalog(out)
     out.append(_magnific_provider_entry())
     out.append(_vertex_provider_entry())
-    _merge_nous_portal_entry(out)
     # Single source of truth: capabilities per (provider, model) resolved by
     # the capabilities module — covers even the Hermes-registered providers
     # (openai/xai/krea/openrouter/openai-codex/deepinfra) whose plugins do NOT
@@ -247,7 +202,7 @@ def _merge_fal_catalog(out: List[Dict[str, Any]]) -> None:
     same endpoint are skipped. Image-to-image endpoints go to ``edit_models`` for
     the Edit tab. Details come from cached schemas only, so listing stays offline.
     """
-    from dashboard import fal_catalog
+    from imagegen_engine import fal_catalog
 
     entry = next((p for p in out if p.get("name") == "fal"), None)
     if entry is None:
@@ -266,43 +221,9 @@ def _merge_fal_catalog(out: List[Dict[str, Any]]) -> None:
                             for item in fal_catalog.models("image-to-image")]
 
 
-def _merge_nous_portal_entry(out: List[Dict[str, Any]]) -> None:
-    """Expose Nous Portal models without duplicating the provider entry.
-
-    Hermes may already register a ``nous`` provider (the OpenRouter-backed
-    reference-grounded path with Nous Portal auth). When present, merge the
-    pinned Tool Gateway catalog into that entry; otherwise add a fresh one.
-    Availability is the union of the registered provider and the gateway.
-    """
-    from dashboard import nous_portal
-
-    portal_models = nous_portal.list_models()
-    existing = next((p for p in out if p.get("name") == nous_portal.PROVIDER_NAME), None)
-    if existing is None:
-        out.append(_nous_portal_provider_entry())
-        return
-    existing_ids = {m.get("id") for m in existing.get("models") or []}
-    for model_entry in portal_models:
-        if model_entry["id"] not in existing_ids:
-            existing.setdefault("models", []).append(model_entry)
-    existing["available"] = bool(existing.get("available")) or nous_portal.nous_portal_available()
-
-
-def _nous_portal_provider_entry() -> Dict[str, Any]:
-    """Nous Portal provider — managed Tool Gateway (subscription, no FAL_KEY)."""
-    from dashboard import nous_portal
-
-    return {
-        "name": nous_portal.PROVIDER_NAME,
-        "display_name": nous_portal.DISPLAY_NAME,
-        "available": nous_portal.nous_portal_available(),
-        "models": nous_portal.list_models(),
-    }
-
-
 def _vertex_provider_entry() -> Dict[str, Any]:
     """Gemini image models on Google Cloud Vertex AI, billed to the key's project."""
-    from dashboard import vertex_api
+    from imagegen_engine import vertex_api
 
     return {
         "name": vertex_api.PROVIDER,
@@ -318,7 +239,7 @@ def _vertex_provider_entry() -> Dict[str, Any]:
 
 
 def _magnific_provider_entry() -> Dict[str, Any]:
-    from dashboard.magnific_catalog import list_models
+    from imagegen_engine.magnific_catalog import list_models
 
     return {
         "name": "magnific",

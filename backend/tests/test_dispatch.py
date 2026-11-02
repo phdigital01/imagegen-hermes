@@ -21,7 +21,7 @@ from typing import Any, Dict
 
 import pytest
 
-from dashboard import gen_service
+from imagegen_engine import gen_service
 
 # The full keyword set the dispatcher passes to a registry backend.
 _COMMON_KWARGS: Dict[str, Any] = {
@@ -71,7 +71,7 @@ def test_registry_backends_share_the_common_signature() -> None:
 
 
 def test_registry_contains_exactly_the_direct_providers() -> None:
-    assert set(gen_service._PROVIDER_BACKENDS) == {"magnific", "nous", "vertex"}
+    assert set(gen_service._PROVIDER_BACKENDS) == {"magnific", "vertex"}
 
 
 # ---------------------------------------------------------------------------
@@ -123,11 +123,10 @@ def test_fal_provider_routes_to_fallback(monkeypatch: pytest.MonkeyPatch) -> Non
     assert result["provider"] == "fal"
 
 
-def test_nous_model_outside_catalog_falls_through_to_registered_provider(
+def test_nous_is_served_by_the_registered_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Regression: a 'nous' model id not in the managed catalog is served by
-    the registered Nous Portal provider, not by the Tool Gateway backend."""
+    """ImageGen has no Nous backend of its own: Hermes's registered provider serves it."""
     calls: list = []
 
     def fake_fallback(**kwargs):
@@ -138,13 +137,60 @@ def test_nous_model_outside_catalog_falls_through_to_registered_provider(
 
     result = gen_service.generate_text_to_image(
         provider="nous",
-        model="not-in-catalog-model",
+        model="any-model",
         prompt="a red bicycle",
     )
 
-    assert calls, "a non-catalog nous model must reach the registered provider"
+    assert calls, "nous must reach the registered provider"
     assert result["provider"] == "nous"
     assert result["images"] == ["https://cdn.example/nous.png"]
+
+
+def test_fal_without_key_runs_through_hermes_fal_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a FAL key, ImageGen never builds a gateway client: Hermes's fal
+    provider generates (it picks the Nous managed gateway for entitled accounts)."""
+    from imagegen_engine import billing, providers_catalog
+
+    calls: list = []
+
+    class _HermesFal:
+        name = "fal"
+
+        def is_available(self) -> bool:
+            return True
+
+        def list_models(self) -> list:
+            return []
+
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            return {"success": True, "image": "https://cdn.example/fal.png", "model": "fal-ai/flux-2-pro"}
+
+    registry = types.ModuleType("agent.image_gen_registry")
+    registry.get_provider = lambda name: _HermesFal() if name == "fal" else None
+    monkeypatch.setitem(sys.modules, "agent", types.ModuleType("agent"))
+    monkeypatch.setitem(sys.modules, "agent.image_gen_registry", registry)
+    monkeypatch.setattr(providers_catalog, "_ensure_providers_registered", lambda: None)
+    monkeypatch.setattr(gen_service, "_fal_key", lambda: None)
+    monkeypatch.setattr(billing, "run", lambda provider, model, estimate, operation, **_: operation())
+
+    result = gen_service.generate_text_to_image(provider="fal", model="fal-ai/flux-2-pro", prompt="a red bicycle")
+
+    assert calls and calls[0]["prompt"].startswith("a red bicycle")
+    assert result["provider"] == "fal"
+    assert result["images"] == ["https://cdn.example/fal.png"]
+
+
+def test_fal_upload_without_key_names_the_missing_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    from imagegen_engine.errors import ImageGenError
+
+    monkeypatch.setattr(gen_service, "_fal_key", lambda: None)
+    with pytest.raises(ImageGenError) as exc_info:
+        gen_service.fal_upload_image("data:image/png;base64,AAAA")
+    assert exc_info.value.code == "provider.unavailable"
+    assert "FAL key" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
@@ -184,35 +230,8 @@ def test_registry_provider_dispatches_to_backend(monkeypatch: pytest.MonkeyPatch
 # ---------------------------------------------------------------------------
 
 
-def test_nous_backend_returns_contract(monkeypatch: pytest.MonkeyPatch) -> None:
-    from dashboard import nous_portal
-
-    monkeypatch.setattr(nous_portal, "nous_portal_available", lambda: True)
-    monkeypatch.setattr(nous_portal, "get_model", lambda model: {"extra_args": {}})
-    monkeypatch.setattr(
-        nous_portal,
-        "submit",
-        lambda model, arguments, **_: {"images": [{"url": "https://cdn.example/nous.png"}]},
-    )
-
-    result = gen_service._generate_nous_portal(
-        model="fal-ai/bytedance/seedream/v5/pro/text-to-image",
-        prompt="a red bicycle",
-        aspect_ratio="4:5",
-        seed=7,
-        num_images=1,
-    )
-
-    assert _CONTRACT_KEYS <= set(result)
-    assert result["provider"] == "nous"
-    assert result["images"] == ["https://cdn.example/nous.png"]
-    assert result["modality"] == "text"
-    assert result["references_used"] == 0
-    assert result["cost_estimate"] is None
-
-
 def test_magnific_backend_returns_contract(monkeypatch: pytest.MonkeyPatch) -> None:
-    from dashboard import magnific_api
+    from imagegen_engine import magnific_api
 
     monkeypatch.setattr(magnific_api, "generate", lambda model, prompt, **kwargs: {
         "images": ["https://cdn.example/magnific.png"],
@@ -250,7 +269,7 @@ def test_vertex_backend_sends_shape_size_and_references(monkeypatch: pytest.Monk
     import io
     import json
 
-    from dashboard import vertex_api
+    from imagegen_engine import vertex_api
 
     monkeypatch.setattr(vertex_api, "credentials", lambda: ("test-key", "my-project"))
     monkeypatch.setattr(gen_service.store, "reserve_spend", lambda *args, **kwargs: "r1")
@@ -289,7 +308,7 @@ def test_vertex_reports_why_no_image_came_back(monkeypatch: pytest.MonkeyPatch) 
     import io
     import json
 
-    from dashboard import vertex_api
+    from imagegen_engine import vertex_api
 
     monkeypatch.setattr(vertex_api, "credentials", lambda: ("test-key", ""))
     reply = {"candidates": [{"finishReason": "IMAGE_SAFETY", "content": {"parts": []}}]}
@@ -304,7 +323,7 @@ def test_vertex_reports_why_no_image_came_back(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_vertex_models_get_only_the_settings_they_take() -> None:
-    from dashboard import vertex_api
+    from imagegen_engine import vertex_api
 
     lite = vertex_api.build_body("gemini-3.1-flash-lite-image", "a mug", "1:8", "4K", [])
     assert lite["generationConfig"]["imageConfig"] == {"imageSize": "1K", "aspectRatio": "1:8"}

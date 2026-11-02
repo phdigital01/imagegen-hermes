@@ -7,15 +7,15 @@ from pathlib import Path
 
 import pytest
 
-from dashboard import gen_service, plugin_api, store
-from dashboard.errors import BUDGET_EXCEEDED, ImageGenError
+from imagegen_engine import gen_service, plugin_api, store
+from imagegen_engine.errors import BUDGET_EXCEEDED, ImageGenError
 
 
 @pytest.fixture
 def isolated_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the spend ledger and settings file at a temp directory."""
-    monkeypatch.setattr(store, "SPEND_FILE", tmp_path / "spend.json")
-    monkeypatch.setattr(store, "SETTINGS_FILE", tmp_path / "settings.json")
+    monkeypatch.setattr(store, "spend_file", lambda: tmp_path / "spend.json")
+    monkeypatch.setattr(store, "settings_file", lambda: tmp_path / "settings.json")
     monkeypatch.setenv("FAL_KEY", "test-key")
     return tmp_path
 
@@ -46,7 +46,7 @@ def test_record_spend_accumulates_and_ignores_null_cost(isolated_budget: Path) -
     store.record_spend("krea", "krea-v1", 1, 0.0)
     store.record_spend("xai", "grok-imagine", 4, 0.24, job_id="job-7")
 
-    ledger = store._read_json(store.SPEND_FILE, [])
+    ledger = store._read_json(store.spend_file(), [])
     assert len(ledger) == 2
     assert {entry["provider"] for entry in ledger} == {"fal", "xai"}
     assert sum(entry["cost"] for entry in ledger) == pytest.approx(0.3)
@@ -58,7 +58,7 @@ def test_record_spend_accumulates_and_ignores_null_cost(isolated_budget: Path) -
 def test_spend_since_filters_by_timestamp(isolated_budget: Path) -> None:
     now = time.time()
     store.record_spend("fal", "m", 1, 1.0)
-    store._write_json(store.SPEND_FILE, store._read_json(store.SPEND_FILE, []) + [
+    store._write_json(store.spend_file(), store._read_json(store.spend_file(), []) + [
         {"ts": now - 100, "provider": "fal", "model": "m", "numImages": 1, "cost": 2.0, "jobId": ""},
     ])
     assert store.spend_since(now - 50) == pytest.approx(1.0)
@@ -67,7 +67,7 @@ def test_spend_since_filters_by_timestamp(isolated_budget: Path) -> None:
 def test_spend_this_month_ignores_previous_months(isolated_budget: Path) -> None:
     now = time.time()
     month_start = store._month_start_utc(now)
-    store._write_json(store.SPEND_FILE, [
+    store._write_json(store.spend_file(), [
         # One second before the current UTC month → must be excluded.
         {"ts": month_start - 1, "provider": "fal", "model": "old", "numImages": 1, "cost": 9.5, "jobId": "old"},
         {"ts": now, "provider": "fal", "model": "now", "numImages": 1, "cost": 0.5, "jobId": "now"},
@@ -78,19 +78,19 @@ def test_spend_this_month_ignores_previous_months(isolated_budget: Path) -> None
 def test_spend_ledger_cap_prunes_only_previous_months(isolated_budget: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(store, "SPEND_CAP", 3)
     old = store._month_start_utc(time.time()) - 100
-    store._write_json(store.SPEND_FILE, [
+    store._write_json(store.spend_file(), [
         {"ts": old - 5 + index, "provider": "fal", "model": "m", "numImages": 1, "cost": 1.0, "jobId": f"old{index}"}
         for index in range(5)
     ])
     for index in range(2):
         store.record_spend("fal", "m", 1, 1.0, job_id=f"j{index}")
-    ledger = store._read_json(store.SPEND_FILE, [])
+    ledger = store._read_json(store.spend_file(), [])
     assert [entry["jobId"] for entry in ledger] == ["old4", "j0", "j1"]
 
     # This month's accounting is never pruned, even past the cap.
     for index in range(2, 5):
         store.record_spend("fal", "m", 1, 1.0, job_id=f"j{index}")
-    ledger = store._read_json(store.SPEND_FILE, [])
+    ledger = store._read_json(store.spend_file(), [])
     assert [entry["jobId"] for entry in ledger] == ["j0", "j1", "j2", "j3", "j4"]
 
 
@@ -177,7 +177,7 @@ def test_generate_fal_records_spend_after_success(
     assert len(calls) == 2
     assert result["cost_estimate"] == pytest.approx(0.06)
     # One reservation per submitted image, settled once the queue accepted it.
-    ledger = store._read_json(store.SPEND_FILE, [])
+    ledger = store._read_json(store.spend_file(), [])
     assert [(entry["provider"], entry["model"], entry["status"]) for entry in ledger] == [
         ("fal", "fal-ai/flux-2-pro", "submitted"),
         ("fal", "fal-ai/flux-2-pro", "submitted"),
