@@ -29,17 +29,29 @@ from imagegen_engine.file_lock import ProcessRLock, process_alive
 
 
 
-def _cap_from_env(name: str, default: int) -> int:
-    """A positive limit from the environment, or ``default``."""
+# Defaults of the ``history_cap`` and ``gallery_cap`` plugin settings (Settings -> Plugins -> ImageGen).
+HISTORY_CAP = 200
+GALLERY_CAP = 200
+
+
+def _cap_setting(key: str, default: int) -> int:
+    """A positive limit from the plugin settings of the active profile, or ``default``."""
+    from imagegen_engine import host_llm
+
+    value = host_llm.setting(key, None)
     try:
-        value = int(os.environ.get(name, ""))
-    except ValueError:
+        value = int(value)
+    except (TypeError, ValueError):
         return default
     return value if value > 0 else default
 
 
-HISTORY_CAP = _cap_from_env("IMAGEGEN_HISTORY_CAP", 200)
-GALLERY_CAP = _cap_from_env("IMAGEGEN_GALLERY_CAP", 200)
+def history_cap() -> int:
+    return _cap_setting("history_cap", HISTORY_CAP)
+
+
+def gallery_cap() -> int:
+    return _cap_setting("gallery_cap", GALLERY_CAP)
 LIBRARY_CAP = 200
 HANDOFFS_CAP = 50
 EXPORTS_CAP = 20
@@ -583,7 +595,7 @@ def add_history(entry: Dict[str, Any]) -> Dict[str, Any]:
         }
         hist = [item for item in hist if item.get("id") != entry["id"]]
         hist.insert(0, entry)
-        _write_json(history_file(), hist[:HISTORY_CAP])
+        _write_json(history_file(), hist[:history_cap()])
     return entry
 
 
@@ -830,7 +842,7 @@ def gallery_stats() -> Dict[str, Any]:
         "entries": len(entries),
         "bytes": total_bytes,
         "oldest_ts": oldest_ts,
-        "cap": GALLERY_CAP,
+        "cap": gallery_cap(),
     }
 
 
@@ -874,7 +886,7 @@ def _prune_gallery() -> None:
                 continue
         records.sort(key=lambda item: item[0], reverse=True)
         pruned_ids: List[str] = []
-        for _, meta_file, meta in records[GALLERY_CAP:]:
+        for _, meta_file, meta in records[gallery_cap():]:
             try:
                 image_file = gallery_dir() / str(meta.get("file", ""))
                 if image_file.is_file():

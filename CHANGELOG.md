@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.6.0
+
+- Command line: `hermes -p <profile> imagegen ...` is now a Hermes subcommand, registered with
+  `ctx.register_cli_command`, so Hermes loads the profile and its secrets. `python imagegen_cli.py`
+  still works with the current process's environment only. The `--profile` option is removed and
+  points to the new command. The plugin loads the command from its own files, so a gateway that
+  hosts several profiles, or still holds the version an update replaced, no longer fails to load it.
+- Settings: the gallery and history limits are the **Gallery limit** and **History limit** plugin
+  settings. `IMAGEGEN_GALLERY_CAP` and `IMAGEGEN_HISTORY_CAP` are no longer read.
+- Generate: one request at a time. **New request** clears the open text, references, product and
+  direction and keeps the model and preferences; a recipe or a gallery entry replaces the open
+  request instead of merging into it. **One image | Several ideas** puts the batch inside the composer.
+- Generate: **Optimize with AI** and **Translate to English** are toggles in the brief. Translate
+  appears only when the brief is not in English and always targets English; quoted text stays as
+  written; a failed translation sends the text as written and says so.
+- Generate: a **Product** strip picks a saved library product. **Direction** is a row of chips that
+  marks your choices and the AI's suggestions. **Advanced** is collapsed and names what is on. The
+  footer shows the image count, format and cost (or "included in your subscription") and one
+  **Generate with {model}** button. The empty stage lists the ready providers and three examples;
+  results carry named Edit, Variations and Download actions with the rest in a menu.
+- Generate: a saved palette counts only when it was turned on, so an old draft no longer adds colors
+  by itself. The variation count is kept with the request.
+- Campaign: starts with one scene and no text space (it used to start at 6 images) and shows the
+  image count before generating. A campaign image opens in Generate as a reference.
+- Edit: numbered steps, a clear choice between keeping what did not change, the whole image or one
+  painted area, and a before/after slider with the share of the image that stayed identical.
+- Gallery: cards show the prompt and the model's name; a Select mode for compare and export; the
+  detail has Edit, Download, **Use again** (as a reference, repeat these settings, save recipe) and
+  a menu for the rest.
+- Previews: results and gallery images show in a secondary profile, which Hermes serves from
+  `http://plugin-host`; they used to render broken there. Gallery cards load the local file first,
+  so a large gallery fills at once, and a lazy image is read only when it nears the screen.
+- Jobs: a job the open profile cannot read says so, with one Close and no Cancel, instead of a
+  spinner that never ends. A status read that fails is tried again a few times without sending the
+  request again. A blocked image names the provider's content policy and offers no retry; a
+  temporary provider error says a retry may be billed.
+- Gallery: ages such as "20 min. ago" follow the plugin's language.
+- Campaign: the button says "Generate 1 image" for a single image.
+
 ## 1.5.0
 
 - Optionally optimize a brief with the Hermes text model. Preview and edit its prompt, keep manual art direction, and use its supported format when generating. Batch lines use their supplied prompts.

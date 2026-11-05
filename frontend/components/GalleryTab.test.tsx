@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChangeEvent, ComponentPropsWithoutRef, ReactNode } from 'react'
 
 import type { FeedItem, FeedResponse, ImageGenConfig, FeedParams } from '../types'
-import { translate } from '../i18n'
+import { relativeTimeActive, translate } from '../i18n'
 import { fetchFeed, deleteFeedEntry } from '../api'
 
 import { GalleryTab } from './GalleryTab'
@@ -131,7 +131,6 @@ vi.mock('@hermes/plugin-sdk', async () => {
     return { data: queryState.data, isLoading: queryState.isLoading, isError: queryState.isError }
   })
 
-  const relativeTime = (ts: number) => `time:${ts}`
 
   return {
     Badge,
@@ -151,7 +150,6 @@ vi.mock('@hermes/plugin-sdk', async () => {
     ErrorState,
     Input,
     icons: {},
-    relativeTime,
     SearchField,
     SegmentedControl,
     Select,
@@ -276,12 +274,12 @@ describe('GalleryTab — unified feed', () => {
     // Every card has an accessible name identifying the image (prompt + meta).
     expect(
       screen.getByRole('button', {
-        name: T('feedItemName', { prompt: 'Sunset over the ocean', meta: 'fal · fal-1 · time:1700000000000' })
+        name: T('feedItemName', { prompt: 'Sunset over the ocean', meta: `fal · fal-1 · ${relativeTimeActive(1700000000000)}` })
       })
     ).toBeTruthy()
     expect(
       screen.getByRole('button', {
-        name: T('feedItemName', { prompt: 'Product shot of a watch', meta: 'fal · fal-1 · time:1700000000000' })
+        name: T('feedItemName', { prompt: 'Product shot of a watch', meta: `fal · fal-1 · ${relativeTimeActive(1700000000000)}` })
       })
     ).toBeTruthy()
   })
@@ -342,7 +340,7 @@ describe('GalleryTab — delete confirmation', () => {
     vi.mocked(deleteFeedEntry).mockResolvedValue({ ok: true })
     renderTab(makeFeed([makeItem({ prompt: 'Old draft' })]))
 
-    const cardName = T('feedItemName', { prompt: 'Old draft', meta: 'fal · fal-1 · time:1700000000000' })
+    const cardName = T('feedItemName', { prompt: 'Old draft', meta: `fal · fal-1 · ${relativeTimeActive(1700000000000)}` })
     fireEvent.click(screen.getByRole('button', { name: cardName }))
     fireEvent.click(screen.getByRole('button', { name: T('delete') }))
 
@@ -360,10 +358,10 @@ describe('GalleryTab — delete confirmation', () => {
 })
 
 describe('GalleryTab — detail panel', () => {
-  it('exposes 9 distinct accessible actions and focuses the panel on open', () => {
+  it('exposes distinct accessible actions and focuses the panel on open', () => {
     renderTab(makeFeed([makeItem()]))
 
-    const card = screen.getByRole('button', { name: T('feedItemName', { prompt: 'A red apple on a table', meta: 'fal · fal-1 · time:1700000000000' }) })
+    const card = screen.getByRole('button', { name: T('feedItemName', { prompt: 'A red apple on a table', meta: `fal · fal-1 · ${relativeTimeActive(1700000000000)}` }) })
     fireEvent.click(card)
 
     const panel = screen.getByRole('region', { name: T('generationDetails') })
@@ -372,12 +370,15 @@ describe('GalleryTab — detail panel', () => {
     const names = within(panel)
       .getAllByRole('button')
       .map((button) => button.getAttribute('aria-label') || button.textContent?.trim() || '')
-    expect(names).toHaveLength(9)
-    expect(new Set(names).size).toBe(9)
+    // The mocked menus render inline: Edit, Download, the two menu triggers and every item.
+    expect(new Set(names).size).toBe(names.length)
     expect(names).toEqual(
       expect.arrayContaining([
         T('download'),
         T('sendToEdit'),
+        T('useAgain'),
+        T('useAgainAsRef'),
+        T('moreActions'),
         T('useInGenerator'),
         T('copyPrompt'),
         T('saveRecipe'),
@@ -392,7 +393,7 @@ describe('GalleryTab — detail panel', () => {
   it('returns focus to the card when the panel closes', () => {
     renderTab(makeFeed([makeItem()]))
 
-    const card = screen.getByRole('button', { name: T('feedItemName', { prompt: 'A red apple on a table', meta: 'fal · fal-1 · time:1700000000000' }) })
+    const card = screen.getByRole('button', { name: T('feedItemName', { prompt: 'A red apple on a table', meta: `fal · fal-1 · ${relativeTimeActive(1700000000000)}` }) })
     // A real click focuses the card before selectItem captures it.
     card.focus()
     fireEvent.click(card)

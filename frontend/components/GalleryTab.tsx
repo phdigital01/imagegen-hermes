@@ -13,13 +13,16 @@ import {
   Codicon,
   ConfirmDialog,
   Dialog,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   DialogContent,
   DialogHeader,
   DialogTitle,
   EmptyState,
   ErrorState,
   Input,
-  relativeTime,
   SearchField,
   SegmentedControl,
   Select,
@@ -33,9 +36,9 @@ import {
 } from '@hermes/plugin-sdk'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 
-import type { FeedItem, FeedParams, FeedSource, FeedSort, ImageGenConfig, LibraryEntry } from '../types'
+import type { FeedItem, FeedParams, FeedSource, FeedSort, ImageGenConfig, LibraryEntry, Provider } from '../types'
 import { ID, deleteFeedEntry, exportFeedZip, exportGalleryPack, fetchFeed, fetchFeedStats, getStored, invalidateFeed, queryClient, rest, setStored } from '../api'
-import { useImageGenT } from '../i18n'
+import { relativeTimeActive, useImageGenT } from '../i18n'
 import { GRID, ImagePreview, Thumb, copyText, displayUrl, downloadFromUrl, revealInFolder } from './ui-helpers'
 import { refsToMeta } from '../presets'
 
@@ -54,7 +57,8 @@ export function GalleryTab({
   onGoToTab,
   onUseConfig,
   library,
-  prompt
+  prompt,
+  providers: providerList = []
 }: {
   config: ImageGenConfig
   updateConfig: (partial: Partial<ImageGenConfig>) => void
@@ -62,6 +66,8 @@ export function GalleryTab({
   onUseConfig: (config: Partial<ImageGenConfig>, prompt?: string) => void
   library: LibraryEntry[]
   prompt: string
+  /** Used only to show a model's friendly name on the cards. */
+  providers?: Provider[]
 }) {
   const t = useImageGenT()
   const [source, setSource] = useState<FeedSourceFilter>(() => getStored<FeedSourceFilter>(FEED_SOURCE_KEY, 'all'))
@@ -75,6 +81,7 @@ export function GalleryTab({
 
   // Bulk selection: checkbox per card + selected count badge + actions bar
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [selecting, setSelecting] = useState(false)
   const [compareOpen, setCompareOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
@@ -175,6 +182,7 @@ export function GalleryTab({
 
   const selectedItems = useMemo(() => sortedItems.filter((it) => selectedIds.has(it.id)), [sortedItems, selectedIds])
   const canCompare = selectedIds.size >= 2 && selectedIds.size <= 4
+  const modelName = (item: FeedItem) => providerList.find((entry) => entry.name === item.provider)?.models.find((entry) => entry.id === item.model)?.display || item.model || item.provider || ''
   const selectedCount = selectedIds.size
 
   const doExportZip = async () => {
@@ -383,6 +391,10 @@ export function GalleryTab({
           </SelectContent>
         </Select>
         <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" variant={selecting ? 'default' : 'outline'} className="h-8 gap-1 text-xs" aria-pressed={selecting} onClick={() => { if (selecting) setSelectedIds(new Set()); setSelecting(!selecting) }}>
+            <Codicon name="checklist" style={{ fontSize: 13 }} />
+            {selecting ? t('selectDone') : t('selectMode')}
+          </Button>
           {selectedCount > 0 && (
             <Badge variant="outline" className="text-[10px]" aria-label={t('selectedCount', { count: String(selectedCount) })}>
               {t('selectedCount', { count: String(selectedCount) })}
@@ -462,12 +474,11 @@ export function GalleryTab({
         <div role="list" aria-label={t('feedGridLabel')} className="gap-3" style={GRID(5)}>
           {sortedItems.map((item) => {
             const first = item.images[0]
-            const cardMeta = [item.provider, item.model, item.ts ? relativeTime(item.ts) : ''].filter(Boolean).join(' · ')
+            const cardMeta = [item.provider, item.model, item.ts ? relativeTimeActive(item.ts) : ''].filter(Boolean).join(' · ')
             const checked = selectedIds.has(item.id)
             return (
               <div role="listitem" key={item.id} className={cn("group overflow-hidden rounded-xl border bg-(--ui-bg-elevated)", checked ? "border-(--ui-accent) ring-1 ring-(--ui-accent)" : "border-(--ui-stroke-secondary)")}>
-              {/* Checkbox per card */}
-              <div className="flex items-center justify-between gap-2 border-b border-(--ui-stroke-secondary) bg-(--ui-bg) px-2 py-1">
+              {(selecting || selectedCount > 0) && <div className="flex items-center justify-between gap-2 border-b border-(--ui-stroke-secondary) bg-(--ui-bg) px-2 py-1">
                 <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
                   <input
                     type="checkbox"
@@ -480,12 +491,12 @@ export function GalleryTab({
                   <span className={cn("truncate max-w-[90px]", checked ? "text-(--ui-accent) font-medium" : "text-(--ui-text-tertiary)")}>{checked ? t('selectedCount', { count: '✓' }) : ''}</span>
                 </label>
                 <span className="text-[9px] text-(--ui-text-tertiary) truncate">{item.provider || ''}</span>
-              </div>
+              </div>}
               <button
                 type="button"
                 aria-label={t('feedItemName', { prompt: item.prompt || item.id, meta: cardMeta })}
                 className="block w-full text-left"
-                onClick={() => selectItem(item)}
+                onClick={() => (selecting ? toggleSelected(item.id, !checked) : selectItem(item))}
               >
                 <div className="relative aspect-square">
                   {first ? (
@@ -507,11 +518,9 @@ export function GalleryTab({
                   )}
                 </div>
                 <div className="space-y-0.5 border-t border-(--ui-stroke-secondary) px-2 py-1.5">
-                  <div className="truncate text-[10px] text-(--ui-text-secondary)">
-                    {[item.provider, item.model].filter(Boolean).join(' · ')}
-                  </div>
-                  <div className="text-[9px] text-(--ui-text-tertiary)">
-                    {item.ts ? relativeTime(item.ts) : ''}
+                  {item.prompt && <div className="if-tile-prompt">{item.prompt}</div>}
+                  <div className="truncate text-[9px] text-(--ui-text-tertiary)">
+                    {[modelName(item), item.ts ? relativeTimeActive(item.ts) : ''].filter(Boolean).join(' · ')}
                   </div>
                 </div>
               </button>
@@ -579,13 +588,13 @@ export function GalleryTab({
                 </Badge>
               )}
               {selected.model && (
-                <Badge variant="outline" className="text-[10px]">
-                  {selected.model}
+                <Badge variant="outline" className="text-[10px]" title={selected.model}>
+                  {modelName(selected)}
                 </Badge>
               )}
               {selected.ts ? (
                 <Badge variant="outline" className="text-[10px]">
-                  {relativeTime(selected.ts)}
+                  {relativeTimeActive(selected.ts)}
                 </Badge>
               ) : null}
             </div>
@@ -599,16 +608,6 @@ export function GalleryTab({
                 size="sm"
                 className="h-7 gap-1 text-xs"
                 disabled={!activeImage}
-                onClick={() => void downloadFromUrl(displayUrl(activeImage), `imagegen-${selected.id}${selected.images.length > 1 ? `-${activeIndex + 1}` : ''}.png`)}
-              >
-                <Codicon name="download" style={{ fontSize: 12 }} />
-                {t('download')}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 gap-1 text-xs"
-                disabled={!activeImage}
                 onClick={() => onGoToTab('edit', { image: displayUrl(activeImage) })}
               >
                 <Codicon name="edit" style={{ fontSize: 12 }} />
@@ -616,47 +615,58 @@ export function GalleryTab({
               </Button>
               <Button
                 size="sm"
-                className="h-7 gap-1 text-xs"
-                onClick={() => {
-                  onUseConfig(selected.config, selected.prompt)
-                  onGoToTab('generate')
-                }}
-              >
-                <Codicon name="sparkle" style={{ fontSize: 12 }} />
-                {t('useInGenerator')}
-              </Button>
-              {selected.prompt && (
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void copyPrompt()}>
-                  {copied ? t('copied') : t('copyPrompt')}
-                </Button>
-              )}
-              <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => openNewRecipe(selected.prompt || prompt)}>
-                <Codicon name="book" style={{ fontSize: 12 }} />
-                {t('saveRecipe')}
-              </Button>
-              <Button
-                size="sm"
                 variant="outline"
                 className="h-7 gap-1 text-xs"
-                disabled={!galleryIdFor(selected)}
-                onClick={() => void exportPack(selected)}
+                disabled={!activeImage}
+                onClick={() => void downloadFromUrl(displayUrl(activeImage), `imagegen-${selected.id}${selected.images.length > 1 ? `-${activeIndex + 1}` : ''}.png`)}
               >
-                <Codicon name="archive" style={{ fontSize: 12 }} />
-                {t('exportPack')}
+                <Codicon name="download" style={{ fontSize: 12 }} />
+                {t('download')}
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 gap-1 text-xs"
-                disabled={!activeImage?.localPath}
-                onClick={() => void revealSelected()}
-              >
-                <Codicon name="folder-opened" style={{ fontSize: 12 }} />
-                {t('viewInFolder')}
-              </Button>
-              <Button size="sm" variant="ghost" className="h-7 text-xs text-(--ui-error)" onClick={() => setDeleteTarget(selected)}>
-                {t('delete')}
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger type="button" className="if-menu-button">
+                  <Codicon name="sparkle" style={{ fontSize: 12 }} />
+                  {t('useAgain')}
+                  <Codicon name="chevron-down" style={{ fontSize: 11 }} />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="imagegen-ui min-w-52">
+                  <DropdownMenuItem onClick={() => { if (activeImage) onGoToTab('generate', { image: displayUrl(activeImage) }) }}>
+                    <Codicon name="link" style={{ fontSize: 13 }} />
+                    {t('useAgainAsRef')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { onUseConfig(selected.config, selected.prompt); onGoToTab('generate') }}>
+                    <Codicon name="history" style={{ fontSize: 13 }} />
+                    {t('useInGenerator')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => openNewRecipe(selected.prompt || prompt)}>
+                    <Codicon name="book" style={{ fontSize: 13 }} />
+                    {t('saveRecipe')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger type="button" className="if-menu-button" aria-label={t('moreActions')} title={t('moreActions')}>
+                  <Codicon name="more" style={{ fontSize: 13 }} />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="imagegen-ui min-w-48">
+                  {selected.prompt && <DropdownMenuItem onClick={() => void copyPrompt()}>
+                    <Codicon name="copy" style={{ fontSize: 13 }} />
+                    {copied ? t('copied') : t('copyPrompt')}
+                  </DropdownMenuItem>}
+                  {galleryIdFor(selected) && <DropdownMenuItem onClick={() => void exportPack(selected)}>
+                    <Codicon name="archive" style={{ fontSize: 13 }} />
+                    {t('exportPack')}
+                  </DropdownMenuItem>}
+                  {activeImage?.localPath && <DropdownMenuItem onClick={() => void revealSelected()}>
+                    <Codicon name="folder-opened" style={{ fontSize: 13 }} />
+                    {t('viewInFolder')}
+                  </DropdownMenuItem>}
+                  <DropdownMenuItem onClick={() => setDeleteTarget(selected)}>
+                    <Codicon name="trash" style={{ fontSize: 13 }} />
+                    {t('delete')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             {folderError && <div className="text-[10.5px] text-(--ui-error)">{folderError}</div>}
           </div>
@@ -686,7 +696,7 @@ export function GalleryTab({
                         <Badge variant="muted" className="text-[9px]">{item.model || ''}</Badge>
                       </div>
                       <div className="line-clamp-3 text-[11px] leading-relaxed">{item.prompt || '—'}</div>
-                      <div className="text-[10px] text-(--ui-text-tertiary)">{item.ts ? relativeTime(item.ts) : ''}</div>
+                      <div className="text-[10px] text-(--ui-text-tertiary)">{item.ts ? relativeTimeActive(item.ts) : ''}</div>
                       <div className="flex gap-1 pt-1">
                         <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" onClick={() => { setCompareOpen(false); selectItem(item) }}>{t('generationDetails')}</Button>
                         <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => toggleSelected(item.id, false)}>{t('close')}</Button>

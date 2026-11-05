@@ -163,7 +163,8 @@ async def llm_optimize(body: Any = Body(None)) -> Dict[str, Any]:
     try:
         if "directionOptions" in body:
             return await _to_thread(llm_service.suggest_direction, body.get("description", ""), body.get("prompt", ""),
-                                    body.get("toolTarget", ""), body["directionOptions"], body.get("manual", {}))
+                                    body.get("toolTarget", ""), body["directionOptions"], body.get("manual", {}),
+                                    body.get("english") is True)
         result = await _to_thread(
             llm_service.llm_optimize_prompt,
             prompt=body.get("prompt", ""),

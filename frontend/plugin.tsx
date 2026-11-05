@@ -12,7 +12,7 @@ import type { ImageGenConfig, JobResult } from './types'
 import { ID, bindApi, invalidateFeed, invalidateGallery, fetchLibrary, fetchPresets, fetchProviderStatus, fetchProviders, getStored, setStored, promptText } from './api'
 import { emitJobChanged, type JobChange } from './jobEvents'
 import { onOpenRequest, takePendingOpen, type OpenRequest } from './navigation'
-import { DEFAULT_CONFIG, migrateConfig, prepareReferences } from './presets'
+import { DEFAULT_CONFIG, migrateConfig, newRequestConfig, prepareReferences, referenceFromImage } from './presets'
 import { IMAGEGEN_LANGS, ImageGenI18nProvider, resolveLang, useImageGenI18n, type ImageGenLang, type ImageGenLangChoice } from './i18n'
 import { EditTab } from './components/EditTab'
 import { GenerateTab } from './components/GenerateTab'
@@ -137,10 +137,29 @@ function ImageGenPage() {
     }
   }, [config.provider, config.selectedModel, providers, updateConfig])
 
+  // Each destination gets the image its own way: Edit opens it, Generate adds it as a reference
+  // of the open request. Before, every image went to Edit's state, even when Generate was asked.
   const goToTab = useCallback((nextTab: string, options?: { image?: string }) => {
-    if (options?.image) setEditInitialImage({ image: options.image, ts: Date.now() })
+    const image = options?.image
+    if (image && nextTab === 'generate') {
+      void referenceFromImage(image, t('refResult'))
+        .then((reference) => setConfig((previous) => ({ ...previous, referencesV4: [...(previous.referencesV4 || []), reference] })))
+        .then(() => host.notify({ id: 'imagegen-reference-added', kind: 'success', message: t('referenceAdded') }))
+        .catch((error) => host.notifyError(error, t('useAsRef')))
+    } else if (image) {
+      setEditInitialImage({ image, ts: Date.now() })
+    }
     if (VALID_TABS.includes(nextTab as ImageGenTab)) setTab(nextTab as ImageGenTab)
-  }, [setTab])
+  }, [setConfig, setTab, t])
+
+  /** Start a request from zero, keeping the person's provider, model and preferences. */
+  const startNewRequest = useCallback(() => {
+    setConfig((previous) => newRequestConfig(previous))
+    setPrompt('')
+    setPromptTouched(false)
+    setPromptManual(false)
+    setLastResult(null)
+  }, [setConfig, setPrompt, setPromptTouched, setPromptManual])
 
   // The chat card opens this page on a given tab, before or after it mounts.
   useEffect(() => {
@@ -153,14 +172,15 @@ function ImageGenPage() {
     })
   }, [goToTab])
 
-  /** Reload a stored generation's settings into the composer. */
+  /** Reload a stored generation's settings into the composer: only what the recipe saved, nothing of the open request. */
   const applyStoredConfig = useCallback((entryConfig: Partial<ImageGenConfig>, entryPrompt?: string) => {
-    updateConfig(entryConfig)
+    setConfig((previous) => migrateConfig({ ...newRequestConfig(previous), ...entryConfig, provider: entryConfig.provider || previous.provider, selectedModel: entryConfig.selectedModel || previous.selectedModel }))
+    setLastResult(null)
     setPrompt(entryPrompt || '')
     setPromptTouched(!!entryPrompt)
     setPromptManual(!!entryPrompt)
     setTab('generate')
-  }, [setTab, updateConfig, setPrompt, setPromptTouched, setPromptManual])
+  }, [setConfig, setTab, setPrompt, setPromptTouched, setPromptManual])
 
   const currentProvider = config.provider || 'fal'
   const currentModel = config.selectedModel || ''
@@ -191,10 +211,10 @@ function ImageGenPage() {
           </div>
         )}
         <main className={cn('if-main', tab === 'generate' && 'if-main-fill')}>
-          {tab === 'generate' && <GenerateTab lastResult={lastResult} setLastResult={setLastResult} key={dataEpoch} config={config} updateConfig={updateConfig} providers={providers} presets={presets} onGoToTab={goToTab} prompt={prompt} setPrompt={setPrompt} promptTouched={promptTouched} setPromptTouched={setPromptTouched} promptManual={promptManual} setPromptManual={setPromptManual} skipConfirm={skipConfirm} setSkipConfirm={setSkipConfirm} activeJobId={activeJobId} setActiveJobId={setActiveJobId} onOpenSettings={() => setSettingsOpen(true)} />}
+          {tab === 'generate' && <GenerateTab lastResult={lastResult} setLastResult={setLastResult} key={dataEpoch} config={config} updateConfig={updateConfig} providers={providers} presets={presets} onGoToTab={goToTab} prompt={prompt} setPrompt={setPrompt} promptTouched={promptTouched} setPromptTouched={setPromptTouched} promptManual={promptManual} setPromptManual={setPromptManual} skipConfirm={skipConfirm} setSkipConfirm={setSkipConfirm} activeJobId={activeJobId} setActiveJobId={setActiveJobId} onOpenSettings={() => setSettingsOpen(true)} onNewRequest={startNewRequest} onOpenCatalog={() => setCatalogOpen(true)} />}
           {tab === 'edit' && <EditTab config={config} updateConfig={updateConfig} initialImage={editInitialImage} providers={providers} onOpenSettings={() => setSettingsOpen(true)} />}
           {tab === 'campaign' && <CampaignMatrixTab config={config} updateConfig={updateConfig} presets={presets} onGoToTab={goToTab} />}
-          {tab === 'gallery' && <GalleryTab config={config} updateConfig={updateConfig} onGoToTab={goToTab} onUseConfig={applyStoredConfig} library={library} prompt={prompt} />}
+          {tab === 'gallery' && <GalleryTab config={config} updateConfig={updateConfig} onGoToTab={goToTab} onUseConfig={applyStoredConfig} library={library} prompt={prompt} providers={providers} />}
         </main>
         <ModelCatalogModal open={catalogOpen} onClose={() => setCatalogOpen(false)} onOpenSettings={() => setSettingsOpen(true)} providers={providers} selectedModel={currentModel} providerName={currentProvider} onSelect={(model) => updateConfig({ selectedModel: model })} onProviderChange={(provider) => { const first = providers.find((item) => item.name === provider)?.models[0]?.id || ''; updateConfig({ provider, selectedModel: first }) }} />
         <Dialog open={settingsOpen} onOpenChange={(value) => !value && setSettingsOpen(false)}>

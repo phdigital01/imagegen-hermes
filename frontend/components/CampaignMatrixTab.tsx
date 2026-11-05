@@ -69,9 +69,9 @@ export function CampaignMatrixTab({
 
   const [subjectId, setSubjectId] = useState('')
   const [scenes, setScenes] = useState<MatrixScene[]>(() =>
-    SCENE_PRESETS.slice(0, 3).map((item) => ({ id: newId(), title: item.title, sceneText: item.sceneText }))
+    SCENE_PRESETS.slice(0, 1).map((item) => ({ id: newId(), title: item.title, sceneText: item.sceneText }))
   )
-  const [zones, setZones] = useState<string[]>(['bottom', 'right'])
+  const [zones, setZones] = useState<string[]>([])
   const [aspectRatio, setAspectRatio] = useState(config.aspectRatio || '4:5')
   const [fidelity, setFidelity] = useState(90)
   const [jobId, setJobId] = useState<string | null>(() => getStored('campaignJobId', null))
@@ -189,9 +189,12 @@ export function CampaignMatrixTab({
 
   return (
     <div className="space-y-4">
-      <p className="text-[11px] leading-relaxed text-(--ui-text-tertiary)">{t('campaignHint')}</p>
+      <div className="space-y-1">
+        <h2 className="text-sm font-semibold">{t('campaignHeadline')}</h2>
+        <p className="text-[11px] leading-relaxed text-(--ui-text-tertiary)">{t('campaignHint')}</p>
+      </div>
 
-      <SectionCard title={`1. ${t('campaignSubject')}`} subtitle={selectedSubject?.name || t('campaignSubjectHint')} defaultOpen>
+      <SectionCard title={`1. ${t('product.title')}`} subtitle={selectedSubject?.name || t('campaignSubjectHint')} defaultOpen>
         {subjects.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {subjects.slice(0, 24).map((entry) => (
@@ -212,7 +215,7 @@ export function CampaignMatrixTab({
           </div>
         ) : (
           <div className="rounded-lg border border-dashed border-(--ui-stroke-secondary) p-4 text-xs text-(--ui-text-tertiary)">
-            {t('emptyLibrary')}
+            {t('product.empty')}
           </div>
         )}
         {refs.length > 0 && (
@@ -317,9 +320,9 @@ export function CampaignMatrixTab({
       <div className="flex flex-wrap items-center gap-2">
         <Button className="h-9 gap-1.5 px-4 font-semibold" disabled={submitting || !!jobId || !primaryImage || cellCount < 1} onClick={() => void startCampaign()}>
           {jobId ? <Spinner /> : <Codicon name="table" />}
-          {jobId ? t('generating') : t('generateMatrix', { envs: String(scenes.filter((s) => s.title.trim()).length), zones: String(Math.max(1, zones.length)) })}
+          {jobId ? t('generating') : cellCount === 1 ? t('generateOne') : t('generateMatrix', { n: String(cellCount) })}
         </Button>
-        <Badge variant="outline" className="text-[10px]">{cellCount} {t('campaignCells')}</Badge>
+        <span className="text-[11px] text-(--ui-text-tertiary)" aria-live="polite">{zones.length ? t('campaignMath', { scenes: String(scenes.filter((s) => s.title.trim()).length), zones: String(zones.length), n: String(cellCount) }) : t('campaignMathOne', { n: String(cellCount) })}</span>
         {error && <span className="text-xs text-red-500">{error}</span>}
       </div>
 
@@ -353,7 +356,7 @@ export function CampaignMatrixTab({
                         <Codicon name="edit" /> {t('edit')}
                       </Button>
                       <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => onGoToTab('generate', { image: cell.images![0] })}>
-                        <Codicon name="sparkle" /> {t('generate')}
+                        <Codicon name="link" /> {t('useAsRef')}
                       </Button>
                     </div>
                   )}

@@ -219,7 +219,14 @@ _COMPOSITION_FEWSHOT = [
 # Prompt operations (text-only)
 # ---------------------------------------------------------------------------
 
-def suggest_direction(description: str, prompt: str, model: str, options: dict, manual: dict) -> dict:
+ENGLISH_PROMPT = (
+    ' Write the final prompt in English, whatever language the description uses. Keep text the image must show'
+    ' (quoted words, signs, labels, headlines) exactly as written, in its original language.'
+)
+
+
+def suggest_direction(description: str, prompt: str, model: str, options: dict, manual: dict,
+                      english: bool = False) -> dict:
     """Choose from the active model's catalog and rewrite the brief in one host LLM call."""
     if not isinstance(description, str) or not description.strip():
         raise ValueError("A description is required")
@@ -234,7 +241,7 @@ def suggest_direction(description: str, prompt: str, model: str, options: dict, 
         'constraints. Its default format may be replaced unless format is manual. Manual selections are binding. '
         'For each relevant unlocked direction use an exact catalog value; omit irrelevant choices. Choose a '
         'supported format that suits the brief. The final prompt and suggested values must agree.'
-    )
+    ) + (ENGLISH_PROMPT if english else '')
     raw = _llm_call(system, json.dumps({"description": description, "compiledPrompt": prompt, "model": model,
                                          "choices": choices, "manual": manual}, ensure_ascii=False))
     try:
@@ -351,7 +358,9 @@ def llm_translate_prompt(text: str, target_lang: str = "pt-BR") -> str:
     system = (
         f"You are a professional translator. Translate the following AI image generation "
         f"prompt to {target_lang}. Preserve technical terms (camera settings, lighting "
-        f"terms) but translate descriptive parts. Return ONLY the translation, no explanations."
+        f"terms) but translate descriptive parts. Keep text the image must show (quoted words, "
+        f"signs, labels, headlines) exactly as written, in its original language. "
+        f"Return ONLY the translation, no explanations."
     )
     return _llm_call(system, text)
 

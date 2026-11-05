@@ -1,9 +1,12 @@
 """ImageGen from a terminal — one generation through the plugin engine, for scripts and coding agents.
 
-Run it with the Hermes venv Python, for example::
+The plugin registers it as a Hermes subcommand, so Hermes loads the profile and its secrets first::
 
-    python imagegen_cli.py --profile my-profile --prompt-file prompt.txt \
+    hermes -p my-profile imagegen --prompt-file prompt.txt \
         --ref photo-a.jpg --ref photo-b.jpg --aspect 4:5 --out ./images --name hero
+
+``python imagegen_cli.py ...`` with the Hermes venv Python still works, with the current process's
+environment only: it never loads a profile or its ``.env``.
 
 The engine is the one the ImageGen screen and the chat provider use: the provider
 and model follow ImageGen's own choice unless ``--provider``/``--model`` are given
@@ -45,8 +48,13 @@ _RATE_LIMIT_BASE_SECONDS = 20
 _RETRY_MAX_SECONDS = 120
 
 
-def _parse(argv: List[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="imagegen_cli", description="Generate images with the ImageGen engine.")
+DESCRIPTION = "Generate images with the ImageGen engine."
+_PROFILE_HINT = ("ERROR [profile.flag]: --profile was removed; run `hermes -p <profile> imagegen ...` "
+                 "so Hermes loads the profile and its keys")
+
+
+def add_arguments(parser: argparse.ArgumentParser) -> None:
+    """Every option of the command; shared by ``hermes imagegen`` and ``python imagegen_cli.py``."""
     parser.add_argument("--list", nargs="?", const="", default=None, metavar="PROVIDER",
                         help="print the providers ImageGen can use now, or one provider's models, and exit")
     text = parser.add_mutually_exclusive_group()
@@ -73,11 +81,16 @@ def _parse(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--retries", type=int, default=0,
                         help="extra attempts after a provider failure, with a growing wait; each attempt may be "
                              "billed (default 0)")
-    parser.add_argument("--profile", default="", help="Hermes profile whose ImageGen settings and gallery to use")
+    # Kept only to explain the move to ``hermes -p``; the plugin never loads a profile itself.
+    parser.add_argument("--profile", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--batch", type=Path, help="a JSONL file with one generation per line, run at the same time")
     parser.add_argument("--workers", type=int, default=8,
                         help="generations at the same time with --batch (default 8; openai-codex was measured at 32)")
-    args = parser.parse_args(argv)
+
+
+def _check(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if args.profile is not None:
+        raise SystemExit(_PROFILE_HINT)
     if args.batch and (args.prompt or args.prompt_file or args.ref):
         parser.error("--batch takes its prompts and references from the file")
     if args.batch and args.edit:
@@ -89,6 +102,13 @@ def _parse(argv: List[str]) -> argparse.Namespace:
         parser.error("one of --prompt, --prompt-file, --batch, --list or --spend is required")
     if not reads_only and args.out is None:
         parser.error("--out is required to generate")
+
+
+def _parse(argv: List[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="imagegen_cli", description=DESCRIPTION)
+    add_arguments(parser)
+    args = parser.parse_args(argv)
+    _check(parser, args)
     return args
 
 
@@ -116,24 +136,6 @@ def _add_hermes_source() -> None:
     source = os.path.dirname(os.path.abspath(hermes_constants.__file__))
     if source not in sys.path:
         sys.path.insert(0, source)
-
-
-def _use_profile(name: str) -> None:
-    """Point the engine at a named Hermes profile and load its keys, as Hermes does at start.
-
-    Must run before ``imagegen_engine`` is imported.
-    """
-    from hermes_constants import get_default_hermes_root
-
-    home = get_default_hermes_root() / "profiles" / name
-    if not home.is_dir():
-        raise SystemExit(f"ERROR [profile.unknown]: no Hermes profile named {name!r} at {home}")
-    os.environ["HERMES_HOME"] = str(home)
-    try:
-        from hermes_cli.env_loader import load_hermes_dotenv
-    except ImportError:  # an older Hermes: keys come from the process environment only
-        return
-    load_hermes_dotenv(hermes_home=home)
 
 
 @lru_cache(maxsize=32)  # a batch often sends the same photos with every job
@@ -348,11 +350,25 @@ def _batch(args: argparse.Namespace) -> int:
     return 1 if counts["failed"] else 0
 
 
+def setup_hermes_command(parser: argparse.ArgumentParser) -> None:
+    """``setup_fn`` of ``ctx.register_cli_command``: the options of ``hermes imagegen``."""
+    add_arguments(parser)
+    parser.set_defaults(_imagegen_parser=parser)
+
+
+def run_hermes_command(args: argparse.Namespace) -> int:
+    """``handler_fn`` of ``hermes imagegen``; Hermes has already loaded the profile chosen with ``-p``."""
+    _check(args._imagegen_parser, args)
+    return _run(args)
+
+
 def main(argv: List[str] | None = None) -> int:
     args = _parse(sys.argv[1:] if argv is None else argv)
     _add_hermes_source()
-    if args.profile:
-        _use_profile(args.profile)
+    return _run(args)
+
+
+def _run(args: argparse.Namespace) -> int:
     if _PLUGIN_HOME not in sys.path:
         sys.path.insert(0, _PLUGIN_HOME)
     from imagegen_engine.errors import ImageGenError

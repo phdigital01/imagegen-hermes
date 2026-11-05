@@ -17,7 +17,7 @@ Models such as GPT Image redraw the whole picture on every edit, which softens
 it over repeated edits. So an instruction or masked edit sends the source without
 loss, compares the answer with it and returns only the changed area over the
 source. A change to the whole picture (a new style, warmer light) keeps the whole
-answer and says so; **Keep what did not change intact** turns the comparison off.
+answer and says so; choosing **Whole image** instead of **Keep what did not change** turns the comparison off.
 Providers that take references, such as GPT Image on a subscription, do the
 instruction and masked edits, expansion, relighting, style transfer, camera
 changes and skin retouch, without the fine controls of Magnific. The source is mirrored outward to the shape the

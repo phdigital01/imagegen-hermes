@@ -97,6 +97,8 @@ export interface ImageGenConfig {
   seed?: number | string
   colorAccentsEnabled?: boolean
   colorAccents?: string[]
+  /** Translate the request's instructions to English before sending (quoted text stays literal). */
+  translateToEnglish?: boolean
 }
 
 export type DensityMode = 'simple' | 'creative' | 'studio'

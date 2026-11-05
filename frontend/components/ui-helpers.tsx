@@ -4,7 +4,7 @@
  */
 
 import { cn, Codicon, icons, Skeleton, Button } from '@hermes/plugin-sdk'
-import { useEffect, useId, useState, type ComponentType, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ComponentType, type ReactNode } from 'react'
 
 // Resolved by scripts/build_plugin.mjs: thumbnail name -> embedded data URL.
 import BUNDLED_THUMBS from 'imagegen:thumbs'
@@ -174,21 +174,35 @@ export interface ImageSource {
 /** Resolve plugin-owned media through the profile-authenticated Desktop bridge. */
 export function ServedImage({ src, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { src: string }) {
   const [resolved, setResolved] = useState<{ source: string; url: string } | null>(null)
+  // A lazy image is read only when it nears the viewport: the gallery would otherwise read every full image at once.
+  const [near, setNear] = useState(props.loading !== 'lazy')
+  const ref = useRef<HTMLImageElement>(null)
   const guarded = isPluginImageUrl(src)
 
   useEffect(() => {
-    if (!guarded) return
+    if (!guarded || near) return
+    const node = ref.current
+    if (!node || typeof IntersectionObserver === 'undefined') { setNear(true); return }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) { setNear(true); observer.disconnect() }
+    }, { rootMargin: '600px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [guarded, near])
+
+  useEffect(() => {
+    if (!guarded || !near) return
     let active = true
     fetchImageDataUrl(src)
       .then((url) => { if (active) setResolved({ source: src, url }) })
       .catch(() => { if (active) setResolved({ source: src, url: src }) })
     return () => { active = false }
-  }, [guarded, src])
+  }, [guarded, near, src])
 
-  return <img {...props} src={guarded ? resolved?.source === src ? resolved.url : undefined : src} />
+  return <img ref={ref} {...props} src={guarded ? resolved?.source === src ? resolved.url : undefined : src} />
 }
 
-/** Image preview with an HTTP-first strategy and local-file fallback. */
+/** Image preview from the local file when there is one (fast, no bridge), else the served URL; each falls back to the other. */
 export function ImagePreview({
   item,
   className,
@@ -198,13 +212,16 @@ export function ImagePreview({
   className?: string
   alt?: string
 }) {
-  const primary = displayUrl(item)
-  const fallback = item?.localPath ? localPathToUrl(item.localPath) : ''
-  const [src, setSrc] = useState(primary || fallback)
+  const served = displayUrl(item)
+  const local = item?.localPath ? localPathToUrl(item.localPath) : ''
+  // A served image crosses the Desktop bridge whole (a few MB each), so a gallery of them fills slowly.
+  const primary = local || served
+  const fallback = local && served !== local ? served : ''
+  const [src, setSrc] = useState(primary)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
-    setSrc(primary || fallback)
+    setSrc(primary)
     setFailed(false)
   }, [fallback, primary])
 

@@ -311,10 +311,13 @@ def test_gallery_image_reaches_the_ui_inline_and_nothing_else_does(client: TestC
     data_url = client.get("/media/data-url", params={"url": served}).json()["dataUrl"]
     assert data_url.startswith("data:image/png;base64,")
     assert base64.b64decode(data_url.split(",", 1)[1]) == _PNG_BYTES
+    for base in ("http://127.0.0.1:9119", "http://plugin-host"):  # a secondary profile is served from plugin-host
+        assert client.get("/media/data-url", params={"url": base + served}).json()["dataUrl"] == data_url
 
     outside = isolated_store.parent / "secret.txt"
     outside.write_text("TOP-SECRET-OUTSIDE")
-    for url in (str(outside), outside.as_uri(), "/api/plugins/imagegen/gallery/file/..%2Fsecret.txt"):
+    for url in (str(outside), outside.as_uri(), "/api/plugins/imagegen/gallery/file/..%2Fsecret.txt",
+                f"https://example.com{served}"):
         resp = client.get("/media/data-url", params={"url": url})
         assert resp.status_code in (400, 404)
         assert "TOP-SECRET-OUTSIDE" not in resp.text

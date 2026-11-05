@@ -1,3 +1,4 @@
+import { jobFailureAdvice } from '../jobFailure'
 import { Button, Dialog, DialogContent, DialogHeader, DialogTitle, Textarea, useQuery } from '@hermes/plugin-sdk'
 import { useRef, useState } from 'react'
 import { ID, invalidateFeed, invalidateGallery, queryClient, rest, resumeJob } from '../api'
@@ -12,12 +13,14 @@ type Response = { batch: Batch | null }
 const active = (item: Item) => ['queued', 'running', 'recovering'].includes(item.status)
 const key = [ID, 'latest-batch']
 
-export function BatchGenerate({ model, aspect, refs, blocked, estimate, remaining, prepare }: {
+/** Many prompts at once. `inline` shows the list in the composer ("Several ideas" mode) instead of a dialog. */
+export function BatchGenerate({ model, aspect, refs, blocked, estimate, remaining, prepare, inline = false }: {
   model: string; aspect: string; refs: number; blocked: string; estimate: number | null; remaining: number | null
-  prepare: () => Promise<Record<string, unknown>>
+  prepare: () => Promise<Record<string, unknown>>; inline?: boolean
 }) {
   const t = useImageGenT()
-  const [open, setOpen] = useState(false)
+  const [dialogOpen, setOpen] = useState(false)
+  const open = inline || dialogOpen
   const [newList, setNewList] = useState(false)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -63,11 +66,7 @@ export function BatchGenerate({ model, aspect, refs, blocked, estimate, remainin
   })
   const total = batch?.items.length || 0
   const completed = batch?.items.filter(item => item.status === 'completed').length || 0
-  return <>
-    <Button variant="outline" onClick={() => { setOpen(true); setError('') }}>{t('batch.open')}</Button>
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="imagegen-ui if-batch-dialog" onKeyDown={event => event.stopPropagation()}>
-        <DialogHeader><DialogTitle>{t('batch.open')}</DialogTitle></DialogHeader>
+  const body = <>
         {latest.isError && <div role="alert">{String(latest.error)} <Button onClick={() => void latest.refetch()}>{t('retry')}</Button></div>}
         {latest.data && (editing ? <>
           <label className="space-y-1"><span>{t('batch.lines')}</span>
@@ -83,17 +82,27 @@ export function BatchGenerate({ model, aspect, refs, blocked, estimate, remainin
           </div>
         </> : <>
           <p aria-live="polite">{t('batch.progress', { n: String(completed), total: String(total) })} · {batch.model}</p>
-          <ol className="if-batch-items">{batch.items.map((item, i) => <li key={i}>
+          <ol className="if-batch-items">{batch.items.map((item, i) => {
+            const advice = jobFailureAdvice(item)
+            return <li key={i}>
             {item.image && <ServedImage src={item.image} alt={item.prompt} />}
             <div><strong>{i + 1}. {item.prompt}</strong>
-              <p>{t('batch.' + item.status)}{item.error && ` · ${item.error}`}</p>
-              {(item.retryable || item.recoverable || item.status === 'unsent') && <Button size="sm" variant="outline" disabled={busy} onClick={() => void retry(item, i)}>{t(item.recoverable ? 'batch.recover' : 'retry')}</Button>}
+              <p>{t('batch.' + item.status)}{item.error && ` · ${advice ? t(advice) : item.error}`}</p>
+              {((item.retryable && advice !== 'job.moderated') || item.recoverable || item.status === 'unsent') && <Button size="sm" variant="outline" disabled={busy} onClick={() => void retry(item, i)}>{t(item.recoverable ? 'batch.recover' : 'retry')}</Button>}
             </div>
-          </li>)}</ol>
+          </li>})}</ol>
           {!batch.items.some(active) && <Button variant="outline" onClick={() => { attempt.current = null; setNewList(true); setError('') }}>{t('batch.new')}</Button>}
         </>)}
         {!latest.data && !latest.isError && <p role="status">{t('batch.loading')}</p>}
         {error && <p role="alert">{error}</p>}
+  </>
+  if (inline) return <div className="if-batch-inline" onKeyDown={event => event.stopPropagation()}>{body}</div>
+  return <>
+    <Button variant="outline" onClick={() => { setOpen(true); setError('') }}>{t('batch.open')}</Button>
+    <Dialog open={dialogOpen} onOpenChange={setOpen}>
+      <DialogContent className="imagegen-ui if-batch-dialog" onKeyDown={event => event.stopPropagation()}>
+        <DialogHeader><DialogTitle>{t('batch.open')}</DialogTitle></DialogHeader>
+        {body}
       </DialogContent>
     </Dialog>
   </>

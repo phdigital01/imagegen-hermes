@@ -315,7 +315,8 @@ export function isPluginImageUrl(value: string): boolean {
   try {
     const url = new URL(value)
     return ['http:', 'https:'].includes(url.protocol) &&
-      ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) &&
+      // `plugin-host` is the base URL Hermes gives a secondary profile's plugin host.
+      ['localhost', '127.0.0.1', '[::1]', 'plugin-host'].includes(url.hostname) &&
       url.pathname.startsWith('/api/plugins/imagegen/')
   } catch {
     return false

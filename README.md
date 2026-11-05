@@ -10,7 +10,8 @@ Use the ChatGPT subscription you already pay for, or any API key your Hermes pro
   Magnific, Vertex AI and the Hermes image providers. The form applies each model's real
   limits, and Settings says what each provider can do.
 - **Direct with pictures, not jargon.** Style, light, angle, framing and camera are
-  a board of images. Each option shows the same scene with that one change.
+  a row of chips. Open one to pick from photos of the same scene with that one change.
+  The AI fills what you leave open, and each chip says whose choice it is.
 - **Edit without losing quality.** Models redraw the whole picture on every edit,
   so an image gets softer each round. ImageGen puts back only the area that changed.
   The rest stays identical, pixel for pixel, after any number of edits. When you
@@ -21,7 +22,7 @@ Use the ChatGPT subscription you already pay for, or any API key your Hermes pro
   [generate a hundred images in one command](#use-it-from-coding-agents), and they land
   in the same gallery as yours.
 
-![Two edits in a row: only the changed area returns over the source](docs/catalog/edit-demo.gif)
+![An edit turns the vase cobalt blue; the before/after slider shows the rest of the photo unchanged](docs/catalog/edit-demo.gif)
 
 ## What it does
 
@@ -56,9 +57,9 @@ The interface follows the Hermes app language (English, Portuguese, Spanish
 or Chinese) and can be pinned to one of them.
 
 
-In **Generate**, describe the image and optionally enable **Optimize with AI**. Preview the suggestions to review or edit the prompt. Manual visual choices take priority. With confirmation enabled, Generate shows the final prompt and format before submitting the image. Changing the brief discards its previous suggestion.
+In **Generate**, describe the image. **Optimize with AI** turns the brief into a detailed prompt and fills the direction left on Auto; your own choices take priority and the chips mark which picks are yours and which came from the AI. **Translate to English** appears when the brief is in another language; text inside quotes stays as written. Pick a saved **Product** to keep it the same in every image, and open **Advanced** for variations, quality, colors, text space and seed. **See the text that will be sent** shows the final prompt, and the button names the model, the image count and the cost. **New request** clears the open request and keeps the model and preferences.
 
-Use **Generate batch** for independent images. Enter one finished prompt per line (up to 32), review the model, shared settings and estimated cost when available, then start. Reopen the batch to follow its progress or retry one failed item. For variations of the same subject across scenes, use **Campaign**.
+Switch to **Several ideas** for independent images. Enter one finished prompt per line (up to 32), review the model, shared settings and estimated cost when available, then start. Reopen the batch to follow its progress or retry one failed item. For variations of the same subject across scenes, use **Campaign**.
 
 ## Install
 
@@ -81,8 +82,11 @@ then turn on the Desktop UI as in step 4. Requires Hermes 0.22.5 or newer.
 | ![Generate](docs/catalog/screenshots/generate.png) | ![Gallery](docs/catalog/screenshots/gallery.png) |
 | **Edit** | **Campaign** |
 | ![Edit](docs/catalog/screenshots/edit.png) | ![Campaign](docs/catalog/screenshots/campaign.png) |
+| **Gallery detail** | **Providers** |
+| ![Gallery detail](docs/catalog/screenshots/gallery-detail.png) | ![Providers](docs/catalog/screenshots/providers.png) |
 
-The sample images were generated with GPT Image through ImageGen.
+The screenshots come from Hermes Desktop 0.22.5 with ImageGen 1.6.0. The sample images were
+generated through ImageGen with GPT Image and Grok.
 
 ## Use it from coding agents
 
@@ -91,11 +95,11 @@ a terminal command can call its command line. It uses the keys, the gallery and 
 Hermes profile, so images made by an agent appear in the same gallery as yours.
 
 ```text
-python $HERMES_HOME/plugins/imagegen/backend/imagegen_cli.py --profile <name> \
-    --prompt-file prompt.txt --ref photo.jpg --aspect 4:5 --out ./images --name hero
+hermes -p <profile> imagegen --prompt-file prompt.txt --ref photo.jpg \
+    --aspect 4:5 --out ./images --name hero
 ```
 
-Use the Python of the Hermes install. The result prints as JSON, and `--batch` runs many images
+Hermes loads the profile and its keys before the command runs. The result prints as JSON, and `--batch` runs many images
 at once. Each image is billed by its provider. Details are in
 [What this plugin does on your machine](#what-this-plugin-does-on-your-machine).
 
@@ -113,8 +117,11 @@ optional and live in **Settings → Plugins → ImageGen**:
 | Vertex AI project ID | `VERTEX_PROJECT` | The project for a key bound to a service account |
 
 The plugin reads them through the Hermes secret store and never opens or writes
-`.env` files itself. The only exception is the command line below: `--profile`
-asks Hermes's own loader to load that profile's keys, as Hermes does at start.
+`.env` files itself, the command line included.
+
+The same settings page has two limits, **Gallery limit** and **History limit**
+(200 each). Past the gallery limit the oldest gallery files are deleted, so
+raise it before a large batch if you want to keep earlier images in the gallery.
 
 Prompt writing and image reading use your active Hermes model through the
 plugin LLM API. They appear as two auxiliary slots, **ImageGen prompts** and
@@ -144,9 +151,9 @@ Read this before you install.
 - **Local data.** Images, gallery, history, recipes, jobs and the spending
   ledger are stored in `$HERMES_HOME/plugin-data/imagegen/`. You can also set
   an export folder. Clearing data in the plugin asks for confirmation.
-- **Agent integration.** The plugin registers no tools, hooks or commands. It
+- **Agent integration.** The plugin registers no tools, hooks or slash commands. It
   registers one image provider, **ImageGen**, which stays unused until you pick
-  it under **Tools → Image Generation**. Its results tell the model it may add
+  it under **Tools → Image Generation**, and the `hermes imagegen` terminal command. Its results tell the model it may add
   an `::imagegen-image{id="…"}` line, which Desktop shows as ImageGen's Edit
   and gallery buttons.
 - **Host integration.** To list and call the Hermes image providers and read
@@ -156,16 +163,20 @@ Read this before you install.
 - **Optional MCP server.** `backend/mcp_server.py` exposes generation to the
   agent over stdio. It runs only if you add it to `mcp_servers` in your Hermes
   `config.yaml` yourself; it then spends money like the screen does.
-- **Command line.** `backend/imagegen_cli.py` runs one generation from a
-  terminal or a coding agent, with the Hermes venv Python. Each run is billed
-  like a click on **Generate**, and `--retries` attempts may each be billed.
+- **Command line.** `hermes imagegen` runs one generation from a terminal or a
+  coding agent. Each run is billed like a click on **Generate**, and `--retries`
+  attempts may each be billed.
 
   ```text
-  python $HERMES_HOME/plugins/imagegen/backend/imagegen_cli.py --profile <name> \
-      --prompt-file prompt.txt --ref photo.jpg --aspect 4:5 --out ./images --name hero
+  hermes -p <profile> imagegen --prompt-file prompt.txt --ref photo.jpg \
+      --aspect 4:5 --out ./images --name hero
   ```
 
-  `--profile` uses that profile's keys and gallery. Without `--provider` and
+  `-p` is Hermes's own profile option: Hermes loads that profile and its keys at
+  start, and the command uses its gallery and budget. Running
+  `backend/imagegen_cli.py` directly with the Hermes venv Python takes the same
+  options but uses only the current process's environment; it never loads a
+  profile or a `.env` file. Without `--provider` and
   `--model` it uses ImageGen's own choice; `--list`
   prints the providers it can use now and `--list <provider>` their models. References
   may come from any folder: they are copied into the plugin's reference store
@@ -192,9 +203,10 @@ Read this before you install.
   - `--retries` waits longer at each attempt, and longer still on a rate limit (HTTP 429).
   - References longer than 2048 pixels are reduced before sending, which shortens the upload.
     `--ref-max-side 0` sends them as they are.
-  - The gallery and the history keep 200 items. `IMAGEGEN_GALLERY_CAP` and `IMAGEGEN_HISTORY_CAP`
-    in the profile's `.env` change this. The oldest gallery files are deleted past the limit, so
-    a large batch without a higher limit pushes out earlier images. Files in `--out` are never removed.
+  - The gallery and the history keep 200 items. **Gallery limit** and **History limit** in
+    **Settings → Plugins → ImageGen** change this. The oldest gallery files are deleted past the
+    limit, so a large batch without a higher limit pushes out earlier images. Files in `--out` are
+    never removed.
 
 More about each provider, jobs and accounting: [docs/manual/providers.md](docs/manual/providers.md).
 

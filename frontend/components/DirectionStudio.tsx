@@ -121,21 +121,50 @@ function RatioShape({ ratio }: { ratio: string }) {
   )
 }
 
-/** The eight groups in the composer, each showing what is chosen now. */
-export function DirectionBoard({ config, manual, autoFormat, onOpen }: { config: ImageGenConfig; manual?: ImageGenConfig; autoFormat?: boolean; onOpen: (tab: DirectionTab) => void }) {
+type ChipState = 'you' | 'ai' | 'auto'
+
+/** Who decided each group: the person, the AI suggestion, or nobody yet (the model decides). */
+export function directionStates(config: ImageGenConfig, suggested?: { effective: ImageGenConfig; suggestedFormat: boolean } | null): Record<DirectionTab, { state: ChipState; file: string; text: string; ratio: string }> {
+  return Object.fromEntries((Object.keys(TAB_GROUPS) as DirectionTab[]).map((tab) => {
+    if (tab === 'format') {
+      if (config.manualFormat) return [tab, { state: 'you', file: '', text: config.aspectRatio, ratio: config.aspectRatio }]
+      if (suggested?.suggestedFormat) return [tab, { state: 'ai', file: '', text: suggested.effective.aspectRatio, ratio: suggested.effective.aspectRatio }]
+      return [tab, { state: 'auto', file: '', text: '', ratio: '' }]
+    }
+    const own = tabSummary(config, tab)
+    if (own.text) return [tab, { state: 'you', ...own, ratio: '' }]
+    const ai = suggested ? tabSummary(suggested.effective, tab) : null
+    if (ai?.text) return [tab, { state: 'ai', ...ai, ratio: '' }]
+    return [tab, { state: 'auto', file: '', text: '', ratio: '' }]
+  })) as Record<DirectionTab, { state: ChipState; file: string; text: string; ratio: string }>
+}
+
+/**
+ * The eight groups in the composer as one compact line of labels. A label with a picture is decided
+ * ("Your pick" or "AI"); a dashed one is automatic. Tapping a label opens the pictures of that group.
+ */
+export function DirectionStrip({ config, suggested, onOpen }: {
+  config: ImageGenConfig
+  suggested?: { effective: ImageGenConfig; suggestedFormat: boolean } | null
+  onOpen: (tab: DirectionTab) => void
+}) {
   const t = useImageGenT()
+  const states = directionStates(config, suggested)
   return (
-    <div className="if-board">
+    <div className="if-strip" role="group" aria-label={t('direction.title')}>
       {(Object.keys(TAB_GROUPS) as DirectionTab[]).map((tab) => {
-        const { file, text } = tabSummary(config, tab)
-        const suggested = manual && text && (tab === 'format' ? !manual.manualFormat && !autoFormat : text !== tabSummary(manual, tab).text)
+        const { state, file, text, ratio } = states[tab]
+        const label = t(TAB_LABEL[tab])
+        if (state === 'auto') {
+          return <button key={tab} type="button" className="if-dchip if-dchip-auto" onClick={() => onOpen(tab)} aria-label={`${label}: ${t('automatic')}`}>＋ {label}</button>
+        }
+        const thumb = bundledThumbUrl(file)
         return (
-          <button key={tab} type="button" className={cn('if-board-tile', tab === 'format' ? 'if-board-tile-format' : text && 'if-board-tile-set')} onClick={() => onOpen(tab)}>
-            {tab === 'format' ? <RatioShape ratio={config.aspectRatio} /> : <SceneImage file={file} />}
-            <span className="if-board-caption">
-              <strong>{t(TAB_LABEL[tab])}</strong>
-              <small>{suggested ? t('ai.pick', { value: text }) : tab === 'format' && autoFormat ? t('automatic') : text || t('automatic')}</small>
-            </span>
+          <button key={tab} type="button" className={cn('if-dchip', state === 'you' ? 'if-dchip-you' : 'if-dchip-ai')} onClick={() => onOpen(tab)}
+            aria-label={`${label}: ${text} (${state === 'you' ? t('direction.yours') : t('direction.ai')})`}>
+            {tab === 'format' ? <span className="if-dchip-ratio">{ratio}</span> : thumb ? <img src={thumb} alt="" draggable={false} /> : null}
+            <span className="if-dchip-text">{label}: <b>{text}</b></span>
+            <span className="if-dchip-who">{state === 'you' ? t('direction.yoursShort') : t('direction.aiShort')}</span>
           </button>
         )
       })}

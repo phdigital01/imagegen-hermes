@@ -5,7 +5,7 @@ import type { EditMode, ImageGenConfig, Provider } from '../types'
 import { ID, fetchFalModel, fetchImageDataUrl, isPluginImageUrl, invalidateGallery, rest, queryJobResult, getStored, setStored } from '../api'
 import { isSubscription, providerReady } from '../access'
 import { useImageGenT } from '../i18n'
-import { fileToDataUrl, newId, Spinner, downloadFromUrl, urlToDataUrl } from './ui-helpers'
+import { ServedImage, fileToDataUrl, newId, Spinner, downloadFromUrl, urlToDataUrl } from './ui-helpers'
 import { MaskCanvas, type MaskCanvasApi } from './MaskCanvas'
 import { JobProgress, ResultGrid } from './ResultGrid'
 import { ModelCatalogModal } from './ModelCatalogModal'
@@ -36,6 +36,22 @@ const MODE_ICON: Record<EditMode, string> = {
   upscale: 'zoom-in',
   camera: 'device-camera',
   skin: 'person'
+}
+
+/** Before/after over the same frame; the range input moves the cut. */
+function CompareSlider({ before, after, label }: { before: string; after: string; label: string }) {
+  const t = useImageGenT()
+  const [cut, setCut] = useState(50)
+  return (
+    <div className="if-compare">
+      <img src={before} alt={t('editBefore')} />
+      <div className="if-compare-after" style={{ clipPath: `inset(0 0 0 ${cut}%)` }}><ServedImage src={after} alt={t('editAfter')} /></div>
+      <div className="if-compare-handle" style={{ left: `${cut}%` }} />
+      <span className="if-compare-tag if-compare-tag-left">{t('editBefore')}</span>
+      <span className="if-compare-tag if-compare-tag-right">{t('editAfter')}</span>
+      <input type="range" min={0} max={100} value={cut} aria-label={label} onChange={(event) => setCut(Number(event.target.value))} />
+    </div>
+  )
 }
 
 async function toDataUrl(image: string): Promise<string> {
@@ -81,6 +97,8 @@ export function EditTab({
   const referenceModel = referenceModels.find((model) => model.id === pickedReferenceModel)
     || referenceModels.find((model) => model.id === referenceEngine?.default_model) || referenceModels[0]
   const [keepUnchanged, setKeepUnchanged] = useState(true)
+  // The source as it was when the running edit started: the left side of the comparison.
+  const [before, setBefore] = useState('')
   const [versions, setVersions] = useState<EditVersion[]>([])
   const [activeVersion, setActiveVersion] = useState('')
   const [editModel, setEditModel] = useState('flux-2-pro')
@@ -201,6 +219,7 @@ export function EditTab({
     if (busy || submittingRef.current || !files.length || invalidImages || (mode === 'style-transfer' && files.length < 2)) return
     if (mode === 'region' && !mask) return
     if (promptRequired && !prompt.trim()) return
+    setBefore(files[0]?.dataUrl || '')
     submittingRef.current = true
     setBusy(true)
     setError('')
@@ -305,11 +324,11 @@ export function EditTab({
   return (
     <div className="if-edit-surface space-y-4">
       <div className="if-mode-row" role="group" aria-label={t('edit')}>
-        {MODES.map((value) => (
+        {MODES.filter((value) => value !== 'region').map((value) => (
           <button
             key={value}
             type="button"
-            aria-pressed={mode === value}
+            aria-pressed={mode === value || (value === 'global' && mode === 'region')}
             title={hints[value]}
             className={cn('if-mode', mode === value && 'if-mode-active')}
             disabled={busy}
@@ -405,6 +424,7 @@ export function EditTab({
           </label>
         </>}
       </div>}
+      <div className="if-step-label if-step-number">{t('editStepImage')}</div>
       {mode !== 'region' && <div className="flex gap-2">
         <Input value={imageUrl} disabled={busy} placeholder={t('magnificImageUrl')} aria-label={t('magnificImageUrl')} onChange={(event) => setImageUrl(event.target.value)} />
         <Button variant="outline" disabled={busy || !imageUrl.trim().startsWith('https://') || files.length >= maxImages} onClick={() => {
@@ -472,12 +492,24 @@ export function EditTab({
       )}
       {redraws >= REDRAW_WARNING && <p role="status" className="text-xs text-(--ui-yellow)">{t('editManyRedraws', { count: String(redraws) })}</p>}
 
-      {mode === 'global' && (
-        <label className="flex items-center gap-2 text-xs" title={t('editKeepUnchangedHint')}>
-          <input type="checkbox" checked={keepUnchanged} disabled={busy} className="accent-(--ui-accent)" onChange={(event) => setKeepUnchanged(event.target.checked)} />
-          {t('editKeepUnchanged')}
-        </label>
-      )}
+      {(mode === 'global' || mode === 'region') && <>
+        <div className="if-step-label if-step-number">{t('editStepWhat')}</div>
+        <div className="if-choice" role="radiogroup" aria-label={t('editStepWhat')}>
+          {([
+            ['keep', t('editKeepUnchanged'), t('editKeepUnchangedHint'), mode === 'global' && keepUnchanged],
+            ['whole', t('editWhole'), t('editWholeHint'), mode === 'global' && !keepUnchanged],
+            ['area', t('editArea'), t('editAreaHint'), mode === 'region']
+          ] as const).map(([key, title, hint, on]) => (
+            <button key={key} type="button" role="radio" aria-checked={on} disabled={busy} className="if-choice-card" onClick={() => {
+              if (key === 'area') { if (mode !== 'region') { setMode('region'); setFiles((current) => current.slice(0, 1)); setResult(null) } return }
+              if (mode === 'region') { setMode('global'); setMask(''); setResult(null) }
+              setKeepUnchanged(key === 'keep')
+            }}>
+              <strong>{title}</strong><span>{hint}</span>
+            </button>
+          ))}
+        </div>
+      </>}
 
       {(mode === 'relight' || mode === 'style-transfer') && <div className="space-y-2">
         <p className="text-xs text-(--ui-text-tertiary)">{t('magnificReferenceOrder')}</p>
@@ -522,6 +554,7 @@ export function EditTab({
       </div>}
       {invalidImages && <p role="alert" className="text-xs text-red-500">{t('maxRefsDetail', { max: String(maxImages) })}</p>}
 
+      {showPrompt && <div className="if-step-label if-step-number">{mode === 'global' || mode === 'region' ? t('editStepDescribe') : t('editStepDescribeTwo')}</div>}
       {showPrompt && (
         <Textarea
           value={prompt}
@@ -556,7 +589,7 @@ export function EditTab({
         className="gap-2"
       >
         <span>{busy ? <Spinner /> : <Codicon name="wand" />}</span>
-        {busy ? t('jobRunning') : labels[mode]}
+        {busy ? t('jobRunning') : mode === 'global' || mode === 'region' ? t('editApply') : labels[mode]}
       </Button>
 
       <p className="text-xs text-(--ui-text-tertiary)">{referenceEngine ? `${referenceEngine.display_name || referenceEngine.name} · ${referenceModel?.display || referenceModel?.id || ''}` : `${operationProvider === 'magnific' ? 'Magnific API' : 'FAL'} · ${mode === 'global' ? operationProvider === 'magnific' ? modelInfo?.display || editModel : falEditDisplay : labels[mode]}`}</p>
@@ -581,10 +614,21 @@ export function EditTab({
         setJobId(null)
       }} />}
       {result?.warnings?.map((warning) => <p key={warning} role="status" className="text-xs text-(--ui-yellow)">{warning}</p>)}
-      {mergeNote && <p role="status" className="text-xs text-(--ui-text-tertiary)">{mergeNote}</p>}
+      {mergeNote && !(merge?.merged && typeof merge.changedShare === 'number') && <p role="status" className="text-xs text-(--ui-text-tertiary)">{mergeNote}</p>}
       {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-500">{error}</div>}
 
-      {shownImages.length ? (
+      {result?.images?.[0] && before ? (
+        <div className="if-edit-result space-y-2">
+          {merge?.merged && typeof merge.changedShare === 'number' && <p role="status" className="if-identical">
+            <strong>{Math.min(99, Math.max(0, Math.round((1 - merge.changedShare) * 100)))}%</strong> {t('editIdentical')}
+          </p>}
+          <CompareSlider before={before} after={result.images[0]} label={t('editCompare')} />
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={() => downloadFromUrl(result.images![0], `imagegen-edit-${Date.now()}.png`)}><Codicon name="download" />{t('download')}</Button>
+            {versions.length > 1 && <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" disabled={busy} onClick={() => openVersion(versions[0])}><Codicon name="discard" />{t('editBackToOriginal')}</Button>}
+          </div>
+        </div>
+      ) : shownImages.length ? (
         <div className="if-edit-result">
           <ResultGrid
             images={shownImages}

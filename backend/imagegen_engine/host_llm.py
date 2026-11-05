@@ -50,8 +50,8 @@ def task(key: str) -> Optional[str]:
     return key if key in _tasks else None
 
 
-def get() -> Optional[Any]:
-    """The bound facade; loads plugins once when this process has not yet."""
+def _context() -> Optional[Any]:
+    """The bound plugin context; loads plugins once when this process has not yet."""
     if _ctx is None:
         try:
             # Idempotent public loader: it calls register(ctx) for enabled plugins,
@@ -61,4 +61,18 @@ def get() -> Optional[Any]:
             discover_plugins()
         except Exception:  # noqa: BLE001 — outside Hermes there is no host LLM
             return None
-    return getattr(_ctx, "llm", None)
+    return _ctx
+
+
+def get() -> Optional[Any]:
+    """The bound facade, or None outside Hermes."""
+    return getattr(_context(), "llm", None)
+
+
+def setting(key: str, default: Any = None) -> Any:
+    """A non-secret plugin setting (``config_schema``) of the active profile, read on each call."""
+    ctx = _context()
+    try:
+        return default if ctx is None else ctx.get_config(key, default)
+    except Exception:  # noqa: BLE001 — older host, stub context or unreadable config
+        return default

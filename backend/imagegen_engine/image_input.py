@@ -88,7 +88,8 @@ def resolve_served_image(value: str) -> str:
 
     value = str(value or "").strip()
     parsed = urllib.parse.urlsplit(value)
-    if parsed.scheme and (parsed.scheme not in ("http", "https") or parsed.hostname not in ("localhost", "127.0.0.1", "::1")):
+    # ``plugin-host`` is the base URL Hermes gives a secondary profile's plugin host; nothing is fetched.
+    if parsed.scheme and (parsed.scheme not in ("http", "https") or parsed.hostname not in ("localhost", "127.0.0.1", "::1", "plugin-host")):
         return value
     path = urllib.parse.unquote(parsed.path)
     prefix = "/api/plugins/imagegen/"

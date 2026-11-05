@@ -1,9 +1,10 @@
+import { jobFailureAdvice } from '../jobFailure'
 /**
  * ImageGen — generate tab.
  * Owns prompt construction, generation jobs, model actions, and composition entry points.
  */
 
-import { Badge, Button, Codicon, Dialog, DialogContent, DialogHeader, DialogTitle, Input, KbdGroup, Textarea, cn, host, queryClient, useQuery } from '@hermes/plugin-sdk'
+import { Badge, Button, Codicon, Dialog, DialogContent, DialogHeader, DialogTitle, Input, KbdGroup, Popover, PopoverContent, PopoverTrigger, SegmentedControl, Textarea, cn, host, queryClient, useQuery } from '@hermes/plugin-sdk'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ImageGenConfig, JobResult, LibraryObject, Presets, Provider, ReferenceImage, SubjectLibraryEntry } from '../types'
@@ -32,11 +33,13 @@ import {
 } from '../api'
 import { imageRef, writeToChat } from '../chat'
 import { jobPollMs } from '../jobEvents'
-import { providerReady } from '../access'
+import { isSubscription, providerReady } from '../access'
 import { useImageGenT } from '../i18n'
 import {
   DEFAULT_CONFIG,
+  activeAdvanced,
   aspectOptions,
+  briefLanguage,
   computeAlerts,
   configForHistory,
   configForPrompt,
@@ -56,6 +59,7 @@ import {
   revealInFolder,
   SectionCard,
   Spinner,
+  bundledThumbUrl,
   copyText,
   downloadFromUrl,
   fileToDataUrl,
@@ -65,7 +69,7 @@ import {
 } from './ui-helpers'
 import { CompositionTab } from './CompositionTab'
 import { PreGenSummary } from './PreGenSummary'
-import { directionOptions, DirectionBoard, DirectionStudio, type DirectionTab } from './DirectionStudio'
+import { directionOptions, directionStates, DirectionStrip, DirectionStudio, type DirectionTab } from './DirectionStudio'
 import { ModelCatalogModal } from './ModelCatalogModal'
 import { PromptPanel } from './PromptPanel'
 import { BatchGenerate } from './BatchGenerate'
@@ -92,9 +96,19 @@ interface GenerateTabProps {
   activeJobId: string | null
   setActiveJobId: (id: string | null) => void
   onOpenSettings?: () => void
+  /** Clears the open request (text, references, direction) and keeps the model and saved preferences. */
+  onNewRequest?: () => void
+  onOpenCatalog?: () => void
 }
 
 type PendingAction = 'generate' | 'optimize'
+
+/** Starting points on the empty stage; each fills the brief and a matching direction. */
+const EXAMPLES = [
+  { key: 'studio', thumb: 'subject-product', style: 'Fotorrealista', lighting: 'Studio Softbox', ratio: '1:1' },
+  { key: 'neon', thumb: 'neon', style: 'Cinematográfico', lighting: 'Neon', ratio: '4:5' },
+  { key: 'watercolor', thumb: 'style-aquarela', style: 'Aquarela', lighting: '', ratio: '3:2' }
+] as const
 
 function NativeSelect({ value, onChange, options, className = '' }: { value: string; onChange: (value: string) => void; options: string[]; className?: string }) {
   return (
@@ -131,7 +145,9 @@ export function GenerateTab({
   setActiveJobId,
   lastResult,
   setLastResult,
-  onOpenSettings
+  onOpenSettings,
+  onNewRequest,
+  onOpenCatalog
 }: GenerateTabProps) {
   const t = useImageGenT()
   const [modal, setModal] = useState<string | null>(null)
@@ -146,12 +162,17 @@ export function GenerateTab({
   const [optimizing, setOptimizing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
-  const [upscaleProvider, setUpscaleProvider] = useState(() => !providerReady(providers, 'fal') && providerReady(providers, 'magnific') ? 'magnific' : 'fal')
+  const upscaleProvider = !providerReady(providers, 'fal') && providerReady(providers, 'magnific') ? 'magnific' : 'fal'
   const [accessNotice, setAccessNotice] = useState('')
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   useEffect(() => { setPendingAction(null) }, [config])
   const [seed, setSeed] = useState('')
-  const [numImages, setNumImages] = useState(config.numImages || 1)
+  const numImages = config.numImages || 1
+  const setNumImages = (value: number) => updateConfig({ numImages: value })
+  const [mode, setMode] = useState<'one' | 'many'>('one')
+  const [confirmNew, setConfirmNew] = useState(false)
+  const [productPickerOpen, setProductPickerOpen] = useState(false)
+  const [wantSuggestion, setWantSuggestion] = useState(false)
   const [feedbackImage, setFeedbackImage] = useState<string | null>(null)
   const [feedback, setFeedback] = useState('')
   const [refinedPrompt, setRefinedPrompt] = useState('')
@@ -196,7 +217,7 @@ export function GenerateTab({
   const [builtFor, setBuiltFor] = useState<ImageGenConfig | null>(null)
   const hasPrompt = prompt.trim().length > 0 && (promptManual || promptTouched || builtFor === config)
   const palette = config.colorAccents || []
-  const paletteEnabled = config.colorAccentsEnabled ?? palette.length > 0
+  const paletteEnabled = config.colorAccentsEnabled === true
   const fields = fieldOptions(presets, config.subjectType)
   const objectsQuery = useQuery({
     queryKey: [ID, 'objects'],
@@ -209,6 +230,12 @@ export function GenerateTab({
     refetchInterval: activeJobId ? jobPollMs(2000, 10_000) : jobPollMs(8000, 60_000)
   })
   const objects = objectsQuery.data || []
+  // References that came from one library entry show as one product card.
+  const products = Array.from(new Set(refs.map((ref) => ref.subjectId).filter((id): id is string => !!id))).map((id) => {
+    const group = refs.filter((ref) => ref.subjectId === id)
+    return { id, refs: group, name: objects.find((item) => item.id === id)?.name || group[0]?.label || id }
+  })
+  const looseRefs = refs.filter((ref) => !ref.subjectId)
   const maxRefs = modelInfo?.capabilities?.maxReferences || 0
   useEffect(() => { if (refsTooManyError) setRefsTooManyError(null) }, [refs.length])
   const refMismatch = maxRefs > 0 && refs.length > maxRefs
@@ -314,6 +341,8 @@ export function GenerateTab({
   const [suggestion, setSuggestion] = useState<{ source: ImageGenConfig; base: string; result: string; suggestedFormat: boolean; effective: ImageGenConfig } | null>(null)
   const preview = suggestion?.source === config && suggestion.base === prompt ? suggestion : null
   const aiEnabled = config.optimizeOnGenerate === true && !promptManual && !promptTouched
+  const briefLang = briefLanguage(config.description)
+  const translateOn = config.translateToEnglish === true && briefLang !== 'en'
   const latestSource = useRef<{ config: ImageGenConfig; prompt: string } | null>(null)
   latestSource.current = { config, prompt }
   useEffect(() => () => { latestSource.current = null }, [])
@@ -337,7 +366,7 @@ export function GenerateTab({
       const choices = Object.fromEntries(groups.map(group => [group, directionOptions(presets, group)]))
       choices.format = ratios.map(ratio => ratio.value)
       const { result, direction: pick } = await rest<{ result: string; direction: Record<string, string> }>('/llm/optimize', 'POST', {
-        prompt, description: config.description, toolTarget: model, directionOptions: choices, manual
+        prompt, description: config.description, toolTarget: model, directionOptions: choices, manual, english: translateOn
       })
       if (latestSource.current?.config !== config || latestSource.current.prompt !== prompt) return null
       const effective = { ...config, subjectType: pick.subject || config.subjectType, mood: pick.mood || config.mood,
@@ -369,6 +398,12 @@ export function GenerateTab({
         if (!suggestion || !suggestion.result.trim()) return
         activePrompt = suggestion.result.trim()
         effective = suggestion.effective
+      } else if (!promptOverride && translateOn && !promptManual) {
+        // A failed translation never blocks the image: the text goes as written and the user is told.
+        const translated = await rest<{ result: string }>('/llm/translate', 'POST', { text: activePrompt, targetLang: 'English' })
+          .catch(() => { host.notify({ id: 'imagegen-translate', kind: 'warning', message: t('translate.failed') }); return null })
+        if (latestSource.current?.config !== config || latestSource.current.prompt !== prompt) return
+        if (translated?.result?.trim()) activePrompt = translated.result.trim()
       }
       const sourceRefs = refsOverride ?? refs
       const prepared = await prepareReferences(sourceRefs)
@@ -573,7 +608,6 @@ export function GenerateTab({
 
   const subjectLabel = subjectList.find((item) => item.value === config.subjectType)?.label || ''
   const styleLabel = config.globalDirection.style
-  const costEstimate = modelInfo?.price ? `~${modelInfo.price}` : ''
   // A disabled Generate button must say why in visible text, not color alone;
   // the reason is associated to the button via aria-describedby.
   const generateDisabled = optimizing || (aiEnabled && preview !== null && !preview.result.trim()) || !providerReady(providers, provider) || alerts.blocking.length > 0 || !hasPrompt || submitting || !!activeJobId || refMismatch || budgetExceeded
@@ -651,12 +685,58 @@ export function GenerateTab({
   const visionStale = config.compositionIntent?.status === 'confirmed' && (config.compositionIntent.snapshotDescription !== (config.description || '') || config.compositionIntent.snapshotRefsHash !== refsHash)
   const currentProviderInfo = providers.find((item) => item.name === provider)
   const stageIsEmpty = !activeJobId && !lastResult?.images?.length && !feedbackImage && !pendingAction
+  // AI picks stay on the chips while the brief is the one they were made for.
+  const shownSuggestion = aiEnabled && suggestion && suggestion.source.description === config.description ? suggestion : null
+  const aiCount = Object.values(directionStates(config, shownSuggestion)).filter((item) => item.state === 'ai').length
+  useEffect(() => {
+    if (!wantSuggestion || !aiEnabled || !hasPrompt || !presets || optimizingRef.current) return
+    setWantSuggestion(false)
+    void getSuggestion()
+  })
+  const advancedOn = activeAdvanced(config, seed)
+  const advancedSummary = advancedOn.length
+    ? t('advancedOn', { list: advancedOn.map((key) => key === 'seed' ? 'Seed' : t(key)).join(', ') })
+    : t('advancedNone')
+  const sentText = (aiEnabled && preview ? preview.result : prompt).trim()
+  const sentLine = !config.description.trim() && !promptManual ? t('autoPromptHint') : (sentText.split('\n')[0] || '').slice(0, 120) || t('autoPromptHint')
+  const shownRatio = aiEnabled && preview ? preview.effective.aspectRatio : config.aspectRatio
+  const costText = isSubscription(provider) ? t('includedInPlan') : estimateUsd !== null ? `~${formatUsd(estimateUsd)}` : ''
+  const openCatalog = onOpenCatalog || (() => setCatalogOpen(true))
+  const readyProviders = providers.filter((item) => providerReady(providers, item.name))
+  const missingProviders = providers.filter((item) => !providerReady(providers, item.name))
+  const hasDraft = !!config.description.trim() || refs.length > 0 || !!lastResult?.images?.length
+  const startNew = () => {
+    setConfirmNew(false)
+    setSuggestion(null)
+    setSeed('')
+    setMode('one')
+    setFeedbackImage(null)
+    onNewRequest?.()
+  }
+  const requestNewRequest = () => { if (hasDraft) setConfirmNew(true); else startNew() }
+  const useExample = (example: typeof EXAMPLES[number]) => {
+    setPrompt('')
+    setPromptManual(false)
+    setPromptTouched(false)
+    const fits = ratios.some((ratio) => ratio.value === example.ratio)
+    updateConfig({
+      directionVersion: 1, description: t(`example.${example.key}.brief`), compositionIntent: null,
+      aspectRatio: fits ? example.ratio : config.aspectRatio, manualFormat: fits,
+      globalDirection: { ...config.globalDirection, style: example.style, lighting: example.lighting ? [example.lighting] : [] }
+    })
+  }
+  const exportPack = (image: string) => {
+    const ids = lastResult?.gallery_ids || []
+    const id = ids[lastResult?.images?.indexOf(image) ?? -1] || ids[0]
+    if (!id) return
+    void rest<{ url?: string }>(`/gallery/${id}/export-pack`).then((payload) => { if (payload.url) window.open(payload.url, '_blank') }).catch((error) => host.notifyError(error, t('exportPack')))
+  }
 
   return (
     <div
       className="if-generate"
       onKeyDown={(event) => {
-        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && !activeJobId) {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && !activeJobId && mode === 'one') {
           event.preventDefault()
           requestGenerate()
         }
@@ -664,6 +744,15 @@ export function GenerateTab({
     >
       <section className="if-composer" aria-label={t('describeImage')}>
         <div className="if-composer-scroll">
+          <div role="group" aria-label={t('mode.label')} className="if-mode-switch">
+            <SegmentedControl value={mode} onChange={(id) => setMode(id)} options={[{ id: 'one' as const, label: t('mode.one') }, { id: 'many' as const, label: t('mode.many') }]} />
+          </div>
+          {mode === 'many' ? <div className="if-step">
+            <BatchGenerate inline model={modelInfo?.display || model} aspect={config.aspectRatio} refs={refs.length}
+              blocked={batchBlock} estimate={isSubscription(provider) ? null : parseEstimateUsd(modelInfo?.price, 1)}
+              remaining={budgetLimit === null ? null : budgetLimit - spentThisMonth} prepare={prepareBatch} />
+          </div> : <div className="if-step">
+          <div className="if-step-label">{t('whatToCreate')}{onNewRequest && <button type="button" className="if-link" onClick={requestNewRequest}>{t('newRequest')}</button>}</div>
           <div
             className="if-describe"
             onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault() }}
@@ -685,32 +774,79 @@ export function GenerateTab({
               } : {}), directionVersion: 1, description: event.target.value, compositionIntent: null })
             }} />
             <div className="if-describe-refs">
-              <button type="button" className="if-refs-add" onClick={() => setRefsOpen(true)}>
-                <Codicon name="add" style={{ fontSize: 12 }} />
-                {t('addReferences')}
+              <button type="button" className="if-pill" aria-pressed={aiEnabled} disabled={promptManual || promptTouched}
+                title={promptManual || promptTouched ? t('manualPromptActive') : t('ai.optimizeHint')}
+                onClick={() => { const next = !aiEnabled; updateConfig({ optimizeOnGenerate: next }); setWantSuggestion(next) }}>
+                <Codicon name="sparkle" style={{ fontSize: 12 }} />{t('ai.optimize')}
               </button>
-              {refs.length === 0 && <small>{t('referencePasteHint')}</small>}
-              {refs.map((reference) => (
+              {(briefLang === 'other' || translateOn) && <button type="button" className="if-pill" aria-pressed={translateOn} title={t('translate.hint')} onClick={() => updateConfig({ translateToEnglish: !translateOn })}>
+                <Codicon name="globe" style={{ fontSize: 12 }} />{t('translate.toEnglish')}
+              </button>}
+              <span className="if-spacer" />
+              {looseRefs.map((reference) => (
                 <button key={reference.id} type="button" className="if-ref-thumb" title={reference.label} aria-label={reference.label} onClick={() => setRefsOpen(true)}>
                   <ReferenceThumb reference={reference} className="h-full w-full object-cover" alt={reference.label} />
                 </button>
               ))}
               {refs.length > 0 && maxRefs > 0 && <small>{refs.length}/{maxRefs}</small>}
+              <button type="button" className="if-refs-add" title={t('referencePasteHint')} onClick={() => setRefsOpen(true)}>
+                <Codicon name="add" style={{ fontSize: 12 }} />
+                {t('addReferences')}
+              </button>
             </div>
           </div>
           {pasteError && <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/8 p-2 text-xs"><Codicon name="error" className="mt-0.5 text-red-500" style={{ fontSize: 13 }} /><span className="text-red-600 dark:text-red-400">{t('uploadFailed')}: {pasteError}</span></div>}
 
-          <div className="if-ai-controls">
-            <label><input type="checkbox" checked={aiEnabled} disabled={promptManual || promptTouched} onChange={event => updateConfig({ optimizeOnGenerate: event.target.checked })} /> {t('ai.optimize')}</label>
-            {aiEnabled && <Button size="sm" variant="ghost" disabled={!hasPrompt || optimizing || !presets} onClick={() => void getSuggestion()}>{optimizing ? t('analyzing') : t('ai.preview')}</Button>}
-          </div>
-          {aiEnabled && aiError?.source === config && <p role="alert" className="text-xs">{aiError.message} {t('ai.failure')}</p>}
-          {aiEnabled && preview && <label className="space-y-1 text-xs">{t('ai.result')}
-            <Textarea value={preview.result} rows={4} onChange={event => setSuggestion({ ...preview, result: event.target.value })} />
-          </label>}
-          <DirectionBoard manual={aiEnabled && preview ? config : undefined} config={aiEnabled && preview ? preview.effective : config} autoFormat={!config.manualFormat && !(aiEnabled && preview?.suggestedFormat)} onOpen={setStudioTab} />
+          </div>}
 
-          <SectionCard title={t('moreOptions')} defaultOpen={false}>
+          <div className="if-step">
+            <div className="if-step-label">{t('product.title')}<small>{t('product.hint')}</small></div>
+            {products.map((product) => (
+              <div key={product.id} className="if-product">
+                <ReferenceThumb reference={product.refs[0]} className="if-product-thumb" alt={product.name} />
+                <div className="if-product-meta"><strong>{product.name}</strong><span>{t('product.angles', { n: String(product.refs.length) })}</span></div>
+                <button type="button" className="if-icon-button" aria-label={`${t('remove')} ${product.name}`} onClick={() => updateConfig({ referencesV4: refs.filter((ref) => ref.subjectId !== product.id) })}>
+                  <Codicon name="close" style={{ fontSize: 13 }} />
+                </button>
+              </div>
+            ))}
+            <Popover open={productPickerOpen} onOpenChange={setProductPickerOpen}>
+              <PopoverTrigger asChild>
+                <button type="button" className="if-product if-product-empty"><Codicon name="add" style={{ fontSize: 12 }} />{products.length ? t('product.addAnother') : t('product.choose')}</button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="imagegen-ui if-product-picker">
+                {objects.length === 0 ? <div className="space-y-2 text-xs">
+                  <p>{t('product.empty')}</p>
+                  <Button size="sm" variant="outline" onClick={() => { setProductPickerOpen(false); setRefsOpen(true) }}>{t('product.import')}</Button>
+                </div> : <>
+                  {objects.map((object) => (
+                    <button key={object.id} type="button" className="if-product-option" disabled={!!objectRefLoading || products.some((item) => item.id === object.id)}
+                      onClick={() => void useObjectRef(object).then((added) => { if (added) setProductPickerOpen(false) })}>
+                      <ImagePreview item={object} className="h-10 w-10 rounded object-cover" alt={object.name} />
+                      <span>{object.name}</span>
+                      {objectRefLoading === object.id && <Spinner size={11} />}
+                    </button>
+                  ))}
+                  <button type="button" className="if-link" onClick={() => { setProductPickerOpen(false); setRefsOpen(true) }}>{t('product.manage')}</button>
+                </>}
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          <div className="if-step">
+            <div className="if-step-label">{t('direction.title')}<small>{t('direction.hint')}</small></div>
+            <DirectionStrip config={config} suggested={shownSuggestion} onOpen={setStudioTab} />
+            {aiEnabled && (
+              <div className="if-ai-note" role="status">
+                <Codicon name="sparkle" style={{ fontSize: 12 }} />
+                <span>{optimizing ? t('analyzing') : shownSuggestion ? t('direction.aiFilled', { n: String(aiCount) }) : t('direction.aiWaiting')}</span>
+                {!optimizing && !preview && <Button size="sm" variant="ghost" className="h-6 text-[11px]" disabled={!hasPrompt || !presets} onClick={() => void getSuggestion()}>{t('ai.preview')}</Button>}
+              </div>
+            )}
+            {aiEnabled && aiError?.source === config && <p role="alert" className="text-xs">{aiError.message} {t('ai.failure')}</p>}
+          </div>
+
+          <SectionCard title={t('advancedTitle')} subtitle={advancedSummary} defaultOpen={false}>
             <div className="if-advanced-grid gap-3">
               <div className="space-y-1"><FieldLabel>{t('quality')}</FieldLabel><div className="flex flex-wrap gap-1">{([['draft', t('draft')], ['standard', t('standard')], ['max', t('max')]] as const).map(([value, label]) => <Chip key={value} active={(config.qualityTier || 'standard') === value} onClick={() => updateConfig({ qualityTier: value, qualityLevel: value })}>{label}</Chip>)}</div></div>
               <div className="space-y-1"><FieldLabel>{t('variants')}</FieldLabel><div className="flex gap-1">{[1, 2, 4].map((value) => <Chip key={value} active={numImages === value} onClick={() => setNumImages(value)}>{value}</Chip>)}</div></div>
@@ -751,7 +887,7 @@ export function GenerateTab({
             </SectionCard>}
           </SectionCard>
 
-          <SectionCard title={t('finalPrompt')} subtitle={promptManual ? undefined : t('autoPromptHint')} defaultOpen={false}>
+          {mode === 'one' && <SectionCard title={t('promptSent')} subtitle={translateOn && !aiEnabled && !promptManual ? `${sentLine} · ${t('translate.willTranslate')}` : sentLine} defaultOpen={false}>
             {sessionPrompts.length > 0 && (
               <div className="flex flex-wrap items-center gap-1">
                 <span className="text-[10px] uppercase tracking-wider text-(--ui-text-quaternary)">{t('sessionPrompts')}:</span>
@@ -769,7 +905,7 @@ export function GenerateTab({
                 .then(data => { if (latestSource.current?.config === config && latestSource.current.prompt === prompt) setPrompt(data.result) }).catch(error => host.notifyError(error, t('optimizePrompt')))
                 .finally(() => { optimizingRef.current = false; setOptimizing(false) })
             } : undefined} onResetAuto={() => { setPromptTouched(false); setPromptManual(false); setPrompt('') }} promptTouched={promptTouched} optimizing={optimizing} disabled={alerts.blocking.length > 0} toolTarget={model || 'generic'} magnificHelpers={magnificReady} readOnly={!promptManual} onEditManual={() => { setPromptManual(true); setPromptTouched(true) }} />}
-          </SectionCard>
+          </SectionCard>}
         </div>
 
         <div className="if-composer-footer">
@@ -777,16 +913,16 @@ export function GenerateTab({
             <span>{t('manualPromptActive')}</span>
             <button type="button" onClick={() => { setPrompt(''); setPromptManual(false); setPromptTouched(false) }}>{t('resetAuto')}</button>
           </div>}
-          <Button onClick={requestGenerate} disabled={generateDisabled} aria-describedby={generateDisabled && generateDisabledReason ? 'if-generate-disabled-reason' : undefined} className="h-10 w-full gap-1.5 font-semibold">{activeJobId ? <Spinner /> : <Codicon name={lastResult ? 'refresh' : 'sparkle'} style={{ fontSize: 14 }} />}{activeJobId ? t('generating') : lastResult ? t('generateAgain') : t('generateImage')}</Button>
-          <BatchGenerate model={modelInfo?.display || model} aspect={config.aspectRatio} refs={refs.length}
-            blocked={batchBlock} estimate={parseEstimateUsd(modelInfo?.price, 1)}
-            remaining={budgetLimit === null ? null : budgetLimit - spentThisMonth} prepare={prepareBatch} />
-          {generateDisabled && generateDisabledReason && <p id="if-generate-disabled-reason" className="text-[10.5px] text-(--ui-text-tertiary)">{generateDisabledReason}</p>}
+          <div className="if-gen-summary">
+            <span><strong>{mode === 'many' ? t('mode.manySummary') : t('imageCount', { n: String(numImages) })}</strong>{[shownRatio, costText].filter(Boolean).map((part) => ` · ${part}`).join('')}</span>
+            <button type="button" className="if-link" onClick={openCatalog}>{t('changeModel')}</button>
+          </div>
+          {mode === 'one' && <Button onClick={requestGenerate} disabled={generateDisabled} aria-describedby={generateDisabled && generateDisabledReason ? 'if-generate-disabled-reason' : undefined} className="h-10 w-full gap-1.5 font-semibold">{activeJobId ? <Spinner /> : <Codicon name={lastResult ? 'refresh' : 'sparkle'} style={{ fontSize: 14 }} />}{activeJobId ? t('generating') : t('generateWith', { model: modelInfo?.display || model || '…' })}</Button>}
+          {mode === 'one' && generateDisabled && generateDisabledReason && <p id="if-generate-disabled-reason" className="text-[10.5px] text-(--ui-text-tertiary)">{generateDisabledReason}</p>}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-(--ui-text-tertiary)">
-            {costEstimate && <span>{costEstimate}</span>}
             {budgetLimit !== null && <span className="tabular-nums">{t('budgetUsage', { spent: formatUsd(spentThisMonth), limit: formatUsd(budgetLimit) })}</span>}
             {config.outputGoal === 'prompt' && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => copyText(aiEnabled && preview ? preview.result : prompt)}>{t('copyPrompt')}</Button>}
-            <span className="ml-auto"><KbdGroup keys={['Ctrl', 'Enter']} size="sm" /></span>
+            {mode === 'one' && <span className="ml-auto"><KbdGroup keys={['Ctrl', 'Enter']} size="sm" /></span>}
           </div>
           {budgetExceeded && budgetLimit !== null && estimateUsd !== null && (
             <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/8 p-2 text-[11px]">
@@ -827,10 +963,12 @@ export function GenerateTab({
         {openJobs.length > 0 && (
           <div className="space-y-1 rounded-lg border border-(--ui-stroke-secondary) p-2 text-[11px]">
             <div className="font-medium text-(--ui-text-secondary)">{t('jobQueue')}</div>
-            {openJobs.map((job) => (
+            {openJobs.map((job) => {
+              const advice = jobFailureAdvice(job)
+              return (
               <div key={job.id} className="flex items-center justify-between gap-2">
-                <span className="truncate">{job.kind} · {job.status}{job.message ? ` · ${job.message}` : ''}</span>
-                {job.status === 'failed' && (
+                <span className="min-w-0 break-words">{job.kind} · {job.status}{advice ? ` · ${t(advice)}` : job.message ? ` · ${job.message}` : ''}</span>
+                {job.status === 'failed' && advice !== 'job.moderated' && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -861,7 +999,7 @@ export function GenerateTab({
                   </Button>
                 )}
               </div>
-            ))}
+            )})}
           </div>
         )}
         {pendingAction && <PreGenSummary action={pendingAction} onConfirm={() => void startGenerate()} onCancel={() => setPendingAction(null)} modelLabel={modelInfo?.display || model} promptPreview={aiEnabled && preview ? preview.result : prompt} refCount={refs.length} aspectRatio={aiEnabled && preview ? preview.effective.aspectRatio : config.aspectRatio} warnings={alerts.warnings.length} skipConfirm={skipConfirm} onSkipChange={setSkipConfirm} title={t('confirmGeneration')} optimizeTitle={t('optimizePrompt')} cancel={t('cancel')} generate={t('generate')} optimize={t('optimize')} dontAskAgain={t('dontAskAgain')} refsLabel={t('refsLabel')} warningsLabel={t('warnings')} cleanZones={config.cleanZones} cleanZonesSuppressed={cleanZonesSuppressed} />}
@@ -874,6 +1012,30 @@ export function GenerateTab({
               <strong>{t('stageEmptyTitle')}</strong>
               <span>{t('stageEmptyHint')}</span>
             </div>
+            {providers.length > 0 && <div className="if-ready">
+              <div className="if-step-label">{t('ready.title')}</div>
+              {readyProviders.map((item) => (
+                <div key={item.name} className="if-ready-row">
+                  <Badge variant="outline" className="if-tag-ok">{t('ready.ok')}</Badge>
+                  <strong>{item.display_name || item.name}</strong>
+                  <span>{isSubscription(item.name) ? t('ready.subscription') : t('ready.key')}</span>
+                </div>
+              ))}
+              {missingProviders.length > 0 && <div className="if-ready-row">
+                <Badge variant="outline">{t('ready.connect')}</Badge>
+                <span>{missingProviders.slice(0, 4).map((item) => item.display_name || item.name).join(', ')}{missingProviders.length > 4 ? ` ${t('ready.more', { n: String(missingProviders.length - 4) })}` : ''}</span>
+                {onOpenSettings && <button type="button" className="if-link" onClick={onOpenSettings}>{t('ready.addKey')}</button>}
+              </div>}
+            </div>}
+            <div className="if-step-label">{t('examples.title')}</div>
+            <div className="if-examples">
+              {EXAMPLES.map((example) => (
+                <button key={example.key} type="button" className="if-example" onClick={() => useExample(example)}>
+                  <img src={bundledThumbUrl(example.thumb)} alt="" />
+                  <span><strong>{t(`example.${example.key}.title`)}</strong><small>{example.ratio}</small></span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {lastResult?.images?.length ? (
@@ -884,19 +1046,17 @@ export function GenerateTab({
               {lastResult.gallery_ids?.length ? <Badge variant="outline" className="text-[9px] text-emerald-500">{t('savedGallery')}</Badge> : null}
               {seed && <Chip active={seedLocked} onClick={() => setSeedLocked(!seedLocked)}>seed {seed}</Chip>}
             </div>
-            <label className="flex items-center gap-2 text-xs">
-              {t('upscale')}
-              <select value={upscaleProvider} onChange={(event) => setUpscaleProvider(event.target.value)} disabled={!!activeJobId || submitting}>
-                <option value="fal" disabled={!providerReady(providers, 'fal')}>FAL Clarity 2×{providerReady(providers, 'fal') ? '' : ` · ${t('accessNone')}`}</option>
-                <option value="magnific" disabled={!providerReady(providers, 'magnific')}>Magnific Precision{providerReady(providers, 'magnific') ? '' : ` · ${t('accessNone')}`}</option>
-              </select>
-            </label>
             <ResultGrid
               images={lastResult.images}
               onDownload={(image) => downloadFromUrl(image, `imagegen-${Date.now()}.png`)}
               onVary={(image) => setVaryMenuFor(image)}
               onUpscale={(image) => void doUpscale(image)}
-              upscaleLabel={upscaleProvider === 'magnific' ? 'Magnific Precision' : 'FAL Clarity 2×'}
+              upscaleLabel={providerReady(providers, upscaleProvider) ? `${t('upscale')} · ${upscaleProvider === 'magnific' ? 'Magnific' : 'FAL'}` : t('upscaleNeedsKey')}
+              varyLabel={t('variants')}
+              extraActions={[
+                ...(lastResult.gallery_ids?.length ? [{ key: 'exportPack', icon: 'package', label: t('exportPack'), run: exportPack }] : []),
+                { key: 'copyPrompt', icon: 'copy', label: t('copyPrompt'), run: () => copyText(prompt) }
+              ]}
               onBgRemove={(image) => void doBgRemove(image)}
               onEdit={(image) => onGoToTab('edit', { image })}
               onUseAsRef={(image) => void useAsRef(image)}
@@ -912,9 +1072,6 @@ export function GenerateTab({
                 ))}
                 <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => setVaryMenuFor(null)}>{t('close')}</Button>
               </div>
-            )}
-            {lastResult.gallery_ids?.[0] && (
-              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void rest<{ url?: string }>(`/gallery/${lastResult.gallery_ids![0]}/export-pack`).then((payload) => { if (payload.url) window.open(payload.url, '_blank') })}>{t('exportPack')}</Button>
             )}
           </div>
         ) : null}
@@ -952,6 +1109,16 @@ export function GenerateTab({
 
       <ModelCatalogModal open={catalogOpen} onClose={() => setCatalogOpen(false)} onOpenSettings={onOpenSettings} providers={providers} selectedModel={model} providerName={provider} onSelect={(selected) => updateConfig({ selectedModel: selected })} onProviderChange={(selectedProvider) => { const chosen = providers.find((item) => item.name === selectedProvider); const first = chosen?.default_model || chosen?.models[0]?.id || ''; updateConfig({ provider: selectedProvider, selectedModel: first }) }} />
       <DirectionStudio tab={studioTab} onTab={setStudioTab} onClose={() => setStudioTab(null)} config={config} presets={presets} updateConfig={partial => updateConfig({ directionVersion: 1, ...partial })} onSubject={chooseSubject} ratios={ratios} allowedRatios={modelInfo?.aspectRatios} />
+      <Dialog open={confirmNew} onOpenChange={setConfirmNew}>
+        <DialogContent className="imagegen-ui if-confirm-dialog">
+          <DialogHeader><DialogTitle className="text-sm">{t('newRequestTitle')}</DialogTitle></DialogHeader>
+          <p className="text-xs text-(--ui-text-secondary)">{t('newRequestBody')}</p>
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="outline" onClick={() => setConfirmNew(false)}>{t('cancel')}</Button>
+            <Button size="sm" onClick={startNew}>{t('newRequestConfirm')}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={refsOpen} onOpenChange={setRefsOpen}>
         <DialogContent className="imagegen-ui if-refs-dialog">
           <DialogHeader>

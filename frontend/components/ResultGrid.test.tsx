@@ -177,6 +177,29 @@ describe('JobProgress — job lifecycle', () => {
     }
   })
 
+  it('recovers a missed status read without submitting another generation', async () => {
+    vi.useFakeTimers()
+    try {
+      const done = vi.fn()
+      const job: JobStatus = { id: 'j1', kind: 'generate', status: 'completed' }
+      vi.mocked(fetchJob).mockRejectedValueOnce(new Error('gateway unavailable')).mockResolvedValue(job)
+      render(<JobProgress jobId="j1" onDone={done} />)
+      await act(async () => {})
+      expect(screen.getByRole('alert').textContent).toContain('gateway unavailable')
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      expect(done).toHaveBeenCalledExactlyOnceWith(job)
+      expect(screen.queryByRole('alert')).toBeNull()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('explains xAI moderation and does not offer a paid retry of the same prompt', async () => {
+    vi.mocked(fetchJob).mockResolvedValue({ id: 'j1', kind: 'generate', status: 'failed',
+      retryable: true, errorCode: 'provider.failed', error: 'xAI image generation failed (400): {"code":"imagine:content-moderated"}' })
+    render(<JobProgress jobId="j1" />)
+    expect(await screen.findByText(T('job.moderated'))).toBeTruthy()
+    expect(screen.queryByRole('button', {name: T('jobRetryPaid')})).toBeNull()
+  })
+
   it('announces completion and hands the job to onDone', async () => {
     const onDone = vi.fn()
     const job: JobStatus = { id: 'j1', kind: 'generate', status: 'completed', result: { images: ['http://img.local/a.png'] } }

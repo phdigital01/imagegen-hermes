@@ -75,6 +75,78 @@ export function migrateConfig(value: Partial<ImageGenConfig> | null | undefined)
   return { ...DEFAULT_CONFIG, ...(value || {}), densityMode, creationMode: legacy }
 }
 
+/**
+ * A new request: the person's preferences stay (provider, model, AI optimization, gallery saving),
+ * every choice of the previous request goes (text, subject, direction, colors, text space,
+ * references, format, seed, image count and translation).
+ */
+export function newRequestConfig(config: ImageGenConfig): ImageGenConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    densityMode: config.densityMode,
+    provider: config.provider,
+    selectedModel: config.selectedModel,
+    optimizeOnGenerate: config.optimizeOnGenerate,
+    saveToGallery: config.saveToGallery,
+    outputGoal: config.outputGoal || DEFAULT_CONFIG.outputGoal,
+    directionVersion: 1,
+    colorAccentsEnabled: false,
+    colorAccents: [],
+    translateToEnglish: false,
+    numImages: 1
+  }
+}
+
+/**
+ * The request as the Desktop sends it. An option the person did not turn on reaches neither the prompt
+ * nor the saved recipe: a palette kept for later, or zones left over while the text space is off.
+ * The legacy builder reads a palette without a flag as active, so the flag is always explicit here.
+ */
+function requestConfig(config: ImageGenConfig): ImageGenConfig {
+  const colorsOn = config.colorAccentsEnabled === true && (config.colorAccents || []).length > 0
+  const zonesOn = !!config.cleanZones?.enabled && (config.cleanZones.zones || []).length > 0
+  return {
+    ...config,
+    colorAccentsEnabled: colorsOn,
+    colorAccents: colorsOn ? config.colorAccents : [],
+    cleanZones: zonesOn ? config.cleanZones : { ...DEFAULT_CONFIG.cleanZones }
+  }
+}
+
+/** The advanced options turned on for this request, as dictionary keys for a short summary. */
+export function activeAdvanced(config: ImageGenConfig, seed = ''): string[] {
+  const on: string[] = []
+  if ((config.numImages || 1) > 1) on.push('variants')
+  if ((config.qualityTier || 'standard') !== 'standard') on.push('quality')
+  if ((config.resolution || '1K') !== '1K') on.push('resolution')
+  if (seed) on.push('seed')
+  if ((config.globalDirection?.fidelityMode || 'balanced') !== 'balanced') on.push('fidelity')
+  if ((config.negativePrompt || '').trim()) on.push('negativePrompt')
+  if (requestConfig(config).colorAccentsEnabled) on.push('colorAccents')
+  if (requestConfig(config).cleanZones.enabled) on.push('reserveSpace')
+  if (Object.values(config.structuredFields || {}).some((value) => Array.isArray(value) ? value.length : String(value || '').trim())) on.push('subjectDetails')
+  return on
+}
+
+/**
+ * The language of the request's instructions, independent of the interface language.
+ * Quoted text is ignored: a Portuguese sign inside an English brief stays English.
+ * 'unknown' covers empty, very short or mixed text, where no translation is offered.
+ */
+export function briefLanguage(value: string): 'en' | 'other' | 'unknown' {
+  const text = (value || '').replace(/"[^"]*"|“[^”]*”|«[^»]*»|'[^']*'/gu, ' ').toLowerCase()
+  const words = text.match(/\p{L}+/gu) || []
+  if (words.length < 3) return 'unknown'
+  if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Cyrillic}\p{Script=Arabic}]/u.test(text)) return 'other'
+  const english = /^(the|a|an|with|of|on|in|at|and|for|to|from|by|is|are|this|that|its|over|under|into|without|no|photo|image|shot|view|light|background|studio|red|blue|green|white|black|wooden|table|floor|wall|side|front|close|up|street|night|day)$/u
+  const other = /^(uma?|uns|umas|de|do|da|das|dos|em|na|no|nas|nos|com|sobre|para|sem|fundo|foto|luz|mesa|parede|piso|rua|noite|dia|vermelh[oa]|azul|verde|branc[oa]|pret[oa]|el|la|los|las|del|con|sin|para|y|une?|des|les|avec|sur|sans|et|ein|eine|der|die|das|und|mit|auf|il|lo|gli|della|con|senza|e)$/u
+  const en = words.filter((word) => english.test(word)).length
+  const foreign = words.filter((word) => other.test(word)).length
+  if (foreign >= 2 && foreign > en) return 'other'
+  if (en >= 2 && en > foreign * 2) return 'en'
+  return 'unknown'
+}
+
 // `label` is a dictionary key; 'Story' reads the same in every UI language.
 export const QUICK_RECIPES = [
   { subject: 'objeto_produto', label: 'product', ratio: '4:5' },
@@ -125,7 +197,7 @@ export function refsToMeta(refs: ReferenceImage[]): Array<Record<string, unknown
 
 export function configForPrompt(config: ImageGenConfig, extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    ...config,
+    ...requestConfig(config),
     ...extra,
     referencesV4: (config.referencesV4 || []).map(referenceMeta)
   }
@@ -133,7 +205,7 @@ export function configForPrompt(config: ImageGenConfig, extra: Record<string, un
 
 export function configForHistory(config: ImageGenConfig): Record<string, unknown> {
   return {
-    ...config,
+    ...requestConfig(config),
     // Keep the references so "use config" restores them too. refsToMeta
     // strips imageDataUrl (multi-MB base64 would bloat the stored snapshot)
     // while keeping the safe metadata: id, label, localPath, url, thumb, ...
@@ -154,6 +226,31 @@ export async function persistReferenceImage(image: string, label = 'reference.pn
   if (!dataUrl.startsWith('data:')) throw new Error('Could not prepare the reference image')
   const uploaded = await rest<{ url?: string; path?: string }>('/upload', 'POST', { image: dataUrl, name: label })
   return { imageDataUrl: uploaded.url || image, localPath: uploaded.path || '' }
+}
+
+/** An earlier result or gallery image as a reference of the open request. */
+export async function referenceFromImage(image: string, label: string): Promise<ReferenceImage> {
+  const persisted = await persistReferenceImage(image, `${label.replace(/[^\w-]+/g, '-') || 'reference'}.png`)
+  return {
+    id: `ref-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    label,
+    ...persisted,
+    semanticRole: 'object_primary',
+    authorityLevel: 'authoritative',
+    roleConfirmed: true,
+    fidelity: 85,
+    fixedProduct: false,
+    purposes: [],
+    keep: [],
+    vary: [],
+    granularWeights: { colors: 70, lighting: 70, composition: 70, textures: 70 },
+    userNotes: '',
+    instructions: '',
+    inputMode: 'upload',
+    isAnalyzing: false,
+    analysisResult: null,
+    origin: 'history'
+  }
 }
 
 /** Per-session cache of uploads keyed by image content, so repeated

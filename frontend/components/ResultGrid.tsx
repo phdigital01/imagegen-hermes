@@ -1,3 +1,4 @@
+import { jobFailureAdvice } from '../jobFailure'
 /**
  * ImageGen — result grid and job progress.
  */
@@ -11,7 +12,7 @@ import { useImageGenT } from '../i18n'
 import { jobPollMs, onJobChanged } from '../jobEvents'
 import { GRID, ServedImage, fmtElapsed } from './ui-helpers'
 
-/** Grid of generated images with action buttons (always visible). */
+/** Grid of generated images. Edit, Variations and Download carry their names; the rest sit in the more menu. */
 export function ResultGrid({
   images,
   onVary,
@@ -29,7 +30,8 @@ export function ResultGrid({
   useAsRefLabel,
   animateLabel,
   onNotGood,
-  onAskAgent
+  onAskAgent,
+  extraActions
 }: {
   images: string[]
   onVary?: (img: string, i: number) => void
@@ -48,6 +50,8 @@ export function ResultGrid({
   animateLabel?: string
   onNotGood?: (img: string) => void
   onAskAgent?: (img: string) => void
+  /** More-menu items beyond the built-in ones (export pack, copy prompt). */
+  extraActions?: Array<{ key: string; icon: string; label: string; run: (img: string) => void }>
 }) {
   const t = useImageGenT()
   const [lightbox, setLightbox] = useState<number | null>(null)
@@ -67,11 +71,13 @@ export function ResultGrid({
         // The four primary actions stay one click away; everything else moves
         // into a "more actions" menu so the overlay never exceeds the card width.
         const moreActions: Array<{ key: string; icon: string; label: string; run: () => void }> = [
+          ...(onUseAsRef ? [{ key: 'useAsRef', icon: 'link', label: labels.useAsRef, run: () => onUseAsRef(img) }] : []),
           ...(onUpscale ? [{ key: 'upscale', icon: 'zoom-in', label: labels.upscale, run: () => onUpscale(img) }] : []),
           ...(onBgRemove ? [{ key: 'removeBg', icon: 'clear-all', label: labels.removeBg, run: () => onBgRemove(img) }] : []),
           ...(onAnimate ? [{ key: 'animate', icon: 'play', label: labels.animate, run: () => onAnimate(img, i) }] : []),
           ...(onNotGood ? [{ key: 'notGood', icon: 'thumbsdown', label: t('notGood'), run: () => onNotGood(img) }] : []),
-          ...(onAskAgent ? [{ key: 'askAgent', icon: 'comment-discussion', label: t('askAgent'), run: () => onAskAgent(img) }] : [])
+          ...(onAskAgent ? [{ key: 'askAgent', icon: 'comment-discussion', label: t('askAgent'), run: () => onAskAgent(img) }] : []),
+          ...(extraActions || []).map((action) => ({ ...action, run: () => action.run(img) }))
         ]
         const name = t('resultImageName', { n: String(i + 1) })
         return (
@@ -82,62 +88,21 @@ export function ResultGrid({
           <div className={cn('if-checker relative', columns === 1 ? 'if-result-single' : 'aspect-square')}>
             <button type="button" aria-label={name} className={cn('w-full', columns === 1 ? 'block' : 'h-full')} onClick={() => setLightbox(i)}><ServedImage src={img} alt={name} className={columns === 1 ? undefined : 'h-full w-full object-contain'} loading="lazy" /></button>
           </div>
-          <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-black/65 p-2 opacity-60 transition-opacity group-hover:opacity-100">
-            {onDownload && (
-              <button
-                type="button"
-                title={labels.download}
-                aria-label={`${labels.download}, ${name}`}
-                className="rounded-md bg-white/15 p-1.5 text-white hover:bg-white/30 transition-colors"
-                onClick={() => onDownload(img, i)}
-              >
-                <Codicon name="download" style={{ fontSize: 14 }} />
-              </button>
-            )}
-            {onEdit && (
-              <button
-                type="button"
-                title={labels.edit}
-                aria-label={`${labels.edit}, ${name}`}
-                className="rounded-md bg-white/15 p-1.5 text-white hover:bg-white/30 transition-colors"
-                onClick={() => onEdit(img)}
-              >
-                <Codicon name="edit" style={{ fontSize: 14 }} />
-              </button>
-            )}
-            {onVary && (
-              <button
-                type="button"
-                title={labels.vary}
-                aria-label={`${labels.vary}, ${name}`}
-                className="rounded-md bg-white/15 p-1.5 text-white hover:bg-white/30 transition-colors"
-                onClick={() => onVary(img, i)}
-              >
-                <Codicon name="refresh" style={{ fontSize: 14 }} />
-              </button>
-            )}
-            {onUseAsRef && (
-              <button
-                type="button"
-                title={labels.useAsRef}
-                aria-label={`${labels.useAsRef}, ${name}`}
-                className="rounded-md bg-white/15 p-1.5 text-white hover:bg-white/30 transition-colors"
-                onClick={() => onUseAsRef(img)}
-              >
-                <Codicon name="link" style={{ fontSize: 14 }} />
-              </button>
-            )}
+          <div className="if-result-actions">
+            {onEdit && <Button size="sm" className="h-8 gap-1 text-xs" aria-label={`${labels.edit}, ${name}`} onClick={() => onEdit(img)}><Codicon name="edit" style={{ fontSize: 13 }} />{labels.edit}</Button>}
+            {onVary && <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" aria-label={`${labels.vary}, ${name}`} onClick={() => onVary(img, i)}><Codicon name="refresh" style={{ fontSize: 13 }} />{labels.vary}</Button>}
+            {onDownload && <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" aria-label={`${labels.download}, ${name}`} onClick={() => onDownload(img, i)}><Codicon name="download" style={{ fontSize: 13 }} />{labels.download}</Button>}
             {moreActions.length > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger
                   type="button"
                   title={t('moreActions')}
                   aria-label={`${t('moreActions')}, ${name}`}
-                  className="rounded-md bg-white/15 p-1.5 text-white hover:bg-white/30 transition-colors"
+                  className="if-more-button"
                 >
                   <Codicon name="more" style={{ fontSize: 14 }} />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="imagegen-ui min-w-40">
+                <DropdownMenuContent align="end" className="imagegen-ui min-w-48">
                   {moreActions.map((action) => (
                     <DropdownMenuItem key={action.key} onClick={action.run}>
                       <Codicon name={action.icon} style={{ fontSize: 13 }} />
@@ -194,19 +159,34 @@ export function JobProgress({ jobId, onDone, onDismiss, onJobReplaced, modelLabe
     let timer: ReturnType<typeof setTimeout> | undefined
     setJob(null)
     setError('')
+    let polling = false
+    let failures = 0
+    let finished = false
     const poll = async () => {
+      if (!alive || polling || finished) return
+      polling = true
+      if (timer) clearTimeout(timer)
       try {
         const current = await fetchJob(trackedId)
         if (!alive) return
         setJob(current)
         if (current.status === 'completed') {
           await doneRef.current?.(current)
+          finished = true
+          if (alive) setError('')
           return
         }
-        if (['failed', 'cancelled', 'interrupted'].includes(current.status)) return
+        failures = 0
+        setError('')
+        if (['failed', 'cancelled', 'interrupted'].includes(current.status)) { finished = true; return }
         timer = setTimeout(poll, jobPollMs(1500, 8000))
       } catch (cause) {
-        if (alive) setError(cause instanceof Error ? cause.message : String(cause))
+        if (!alive) return
+        setError(cause instanceof Error ? cause.message : String(cause))
+        // Re-read this job only; never resubmit a generation on a transport error.
+        if (++failures <= 3) timer = setTimeout(poll, 1500 * 2 ** (failures - 1))
+      } finally {
+        polling = false
       }
     }
     // A pushed change for this job refetches at once instead of waiting for the timer.
@@ -234,37 +214,40 @@ export function JobProgress({ jobId, onDone, onDismiss, onJobReplaced, modelLabe
     finally { actionRef.current = false; setBusy(false) }
   }
   const terminal = !!job && ['failed', 'cancelled', 'interrupted', 'completed'].includes(job.status)
+  // The job could not be read at all (another profile's job, or a backend that does not answer).
+  const unreachable = !job && !!error
   const errorArgs = Object.fromEntries(Object.entries(job?.errorParams || {}).map(([key, value]) => [key, String(value)]))
   const translatedError = job?.errorCode ? t(job.errorCode, errorArgs) : ''
-  const detail = translatedError && translatedError !== job?.errorCode ? translatedError : job?.error || unknownError
+  const advice = job && jobFailureAdvice(job)
+  const detail = advice ? t(advice) : translatedError && translatedError !== job?.errorCode ? translatedError : job?.error || unknownError
 
   if (!job && !error) return <Skeleton className="h-16 w-full" />
   return <div role="status" aria-live="polite" className="rounded-xl border border-(--ui-stroke-secondary) p-3 space-y-2 if-fade-in">
     <div className="flex items-center gap-2 text-xs">
-      <Codicon name={terminal ? job?.status === 'completed' ? 'check' : 'warning' : 'sync'} />
-      <strong>{job?.status === 'failed' ? failedLabel || t('jobFailed') : job?.status === 'interrupted' ? t('job.interrupted') : job?.status === 'cancelled' ? cancelledLabel || t('cancel') : job?.status === 'completed' ? t('jobCompleted') : generatingLabel || t('jobRunning')}</strong>
-      {!terminal && <span className="ml-auto font-mono">{fmtElapsed(elapsed)}</span>}
+      <Codicon name={unreachable ? 'warning' : terminal ? job?.status === 'completed' ? 'check' : 'warning' : 'sync'} />
+      <strong>{unreachable ? t('job.unreachable') : job?.status === 'failed' ? failedLabel || t('jobFailed') : job?.status === 'interrupted' ? t('job.interrupted') : job?.status === 'cancelled' ? cancelledLabel || t('cancel') : job?.status === 'completed' ? t('jobCompleted') : generatingLabel || t('jobRunning')}</strong>
+      {!terminal && !unreachable && <span className="ml-auto font-mono">{fmtElapsed(elapsed)}</span>}
     </div>
-    {terminal && detail && <p className="text-xs whitespace-pre-wrap">{detail}</p>}
-    {!terminal && <p className="text-xs text-(--ui-text-tertiary)">{job?.message || modelLabel || processing}</p>}
+    {terminal && job?.status !== 'completed' && detail && <p className="text-xs whitespace-pre-wrap">{detail}</p>}
+    {!terminal && !unreachable && <p className="text-xs text-(--ui-text-tertiary)">{job?.message || modelLabel || processing}</p>}
     {error && <p role="alert" className="text-xs text-(--ui-error)">{error}</p>}
     {!terminal && job?.progress != null && <progress className="w-full" max={1} value={job.progress} />}
     <div className="flex flex-wrap gap-2">
       {error && <Button size="sm" disabled={busy} onClick={() => setRevision((value) => value + 1)}>{t('jobReconnect')}</Button>}
-      {error && onDismiss && <Button size="sm" variant="outline" disabled={busy} onClick={onDismiss}>{close || t('close')}</Button>}
+      {error && job && onDismiss && <Button size="sm" variant="outline" disabled={busy} onClick={onDismiss}>{close || t('close')}</Button>}
       {terminal && job?.recoverable && <Button size="sm" disabled={busy} onClick={() => void act(async () => {
         const response = await resumeJob(trackedId)
         if (!response.ok) throw new Error(t('jobFailed'))
         invalidateFeed()
         setRevision((value) => value + 1)
       })}>{t('jobResume')}</Button>}
-      {terminal && job?.retryable && <Button size="sm" disabled={busy} onClick={() => void act(async () => {
+      {terminal && job?.retryable && advice !== 'job.moderated' && <Button size="sm" disabled={busy} onClick={() => void act(async () => {
         const next = await retryJob(trackedId)
         setTrackedId(next.id)
         onJobReplaced?.(next.id)
       })}>{t('jobRetryPaid')}</Button>}
       {terminal && job && <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(async () => { await doneRef.current?.(job) })}>{job.hasPartialResult ? t('jobViewResult') : gotIt || close || t('close')}</Button>}
-      {!terminal && job?.status !== 'recovering' && <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(async () => {
+      {job && !terminal && job.status !== 'recovering' && <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(async () => {
         if (!(await cancelJob(trackedId)).ok) throw new Error(t('jobFailed'))
         setRevision((value) => value + 1)
       })}>{cancel || t('cancel')}</Button>}

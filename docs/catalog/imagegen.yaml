@@ -20,13 +20,13 @@ description: >-
   your Hermes model through ctx.llm. Images, history and the spending ledger are
   stored in plugin-data/imagegen. Optional FAL_KEY, MAGNIFIC_API_KEY,
   VERTEX_API_KEY and VERTEX_PROJECT are plugin secrets. An optional command line runs single or batch
-  generations only when someone starts it; its --profile option asks Hermes's own loader for that profile's keys.
+  generations only when someone starts it, as the `hermes imagegen` subcommand.
   It imports some non-public Hermes modules to read the image provider
   registry and the FAL catalog.
 maintainer: phdigital01
 tier: community
 category: desktop
-version: "1.4.0"
+version: "1.6.0"
 requires_hermes: ">=0.22.5"
 docs_url: https://github.com/phdigital01/imagegen-hermes#readme
 image: https://raw.githubusercontent.com/phdigital01/imagegen-hermes/31569ccdb9a7a33851fd5e04366631577979f11c/docs/catalog/banner.png

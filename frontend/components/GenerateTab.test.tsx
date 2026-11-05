@@ -74,7 +74,13 @@ vi.mock('@hermes/plugin-sdk', () => ({
   DropdownMenuContent: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   DropdownMenuItem: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   DropdownMenuTrigger: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
-  Tip: ({ label, children }: { label?: string; children?: ReactNode }) => <div>{label}{children}</div>
+  Popover: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  PopoverTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  PopoverContent: ({ children }: { children?: ReactNode }) => <div hidden>{children}</div>,
+  SegmentedControl: ({ options, value, onChange }: { options: Array<{ id: string; label: string }>; value: string; onChange?: (id: string) => void }) => (
+    <div>{options.map((option) => <button key={option.id} type="button" aria-pressed={option.id === value} onClick={() => onChange?.(option.id)}>{option.label}</button>)}</div>
+  ),
+  Tip:({ label, children }: { label?: string; children?: ReactNode }) => <div>{label}{children}</div>
 }))
 
 vi.mock('../api', async (original) => ({
@@ -236,7 +242,7 @@ afterEach(() => {
 describe('GenerateTab — generate disabled with a visible reason', () => {
   it('disables Generate without a prompt and says why in associated visible text', () => {
     render(<Harness prompt="" />)
-    const generate = screen.getByRole('button', { name: 'Generate image' }) as HTMLButtonElement
+    const generate = screen.getByRole('button', { name: /^Generate with / }) as HTMLButtonElement
     expect(generate.disabled).toBe(true)
     expect(generate.getAttribute('aria-describedby')).toBe('if-generate-disabled-reason')
     const reason = document.getElementById('if-generate-disabled-reason')
@@ -248,7 +254,7 @@ describe('GenerateTab — generate disabled with a visible reason', () => {
     render(<Harness restored config={{ ...baseConfig, description: 'Demo scooter' }} prompt="Demo scooter" />)
     const field = screen.getAllByRole('textbox').find((item) => (item as HTMLTextAreaElement).value === 'Demo scooter')!
     fireEvent.change(field, { target: { value: 'Yellow umbrella' } })
-    const generate = screen.getByRole('button', { name: 'Generate image' }) as HTMLButtonElement
+    const generate = screen.getByRole('button', { name: /^Generate with / }) as HTMLButtonElement
     expect(generate.disabled).toBe(true)
     await waitFor(() => expect(generate.disabled).toBe(false))
     fireEvent.click(generate)
@@ -260,11 +266,12 @@ describe('GenerateTab — generate disabled with a visible reason', () => {
       ? { result: 'An umbrella in the rain', direction: { format: '16:9' } }
       : { prompt: 'Umbrella' })
     render(<Harness config={{ ...baseConfig, description: 'Umbrella', optimizeOnGenerate: true }} />)
-    const generate = screen.getByRole('button', { name: 'Generate image' }) as HTMLButtonElement
+    const generate = screen.getByRole('button', { name: /^Generate with / }) as HTMLButtonElement
     await waitFor(() => expect(generate.disabled).toBe(false))
     fireEvent.click(generate)
     await screen.findByText('An umbrella in the rain', { selector: 'p, div' })
-    const reviewed = screen.getByRole('textbox', { name: /Optimized prompt/ })
+    fireEvent.click(screen.getByRole('button', { name: /^See the text that will be sent/ }))
+    const reviewed = screen.getByRole('textbox', { name: 'Final prompt' })
     fireEvent.change(reviewed, { target: { value: 'An umbrella in a garden' } })
     fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
     await waitFor(() => expect(api.submitJob).toHaveBeenCalledWith(expect.objectContaining({
@@ -276,7 +283,7 @@ describe('GenerateTab — generate disabled with a visible reason', () => {
   it('enables Generate when the image is described and the prompt exists', () => {
     const described = { ...baseConfig, description: 'A red car at dusk' }
     render(<Harness restored config={described} prompt="A red car at dusk" />)
-    const generate = screen.getByRole('button', { name: 'Generate image' }) as HTMLButtonElement
+    const generate = screen.getByRole('button', { name: /^Generate with / }) as HTMLButtonElement
     expect(generate.disabled).toBe(false)
     expect(generate.getAttribute('aria-describedby')).toBeNull()
     expect(document.getElementById('if-generate-disabled-reason')).toBeNull()
@@ -287,7 +294,7 @@ describe('GenerateTab — section accordions', () => {
   it('annotates section toggles with aria-expanded and aria-controls pointing at the panel', () => {
     render(<Harness />)
     // Collapsed sections report the collapsed state.
-    const more = screen.getByRole('button', { name: /More options/ })
+    const more = screen.getByRole('button', { name: /^Advanced/ })
     expect(more.getAttribute('aria-expanded')).toBe('false')
     // Toggling flips the state and reveals the panel it points at.
     fireEvent.click(more)

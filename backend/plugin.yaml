@@ -1,6 +1,6 @@
 name: imagegen
 manifest_version: 1
-version: 1.5.0
+version: 1.6.0
 description: >-
   ImageGen — image generation across every Hermes provider (FAL, OpenAI, Grok,
   Krea, DeepInfra, OpenRouter, Nous Portal, Magnific, Vertex AI) with a professional prompt
@@ -32,3 +32,13 @@ config_schema:
     env: VERTEX_PROJECT
     label: Vertex AI project ID
     description: Optional. The Google Cloud project for a key bound to a service account. Leave empty for an express-mode key.
+  gallery_cap:
+    type: int
+    default: 200
+    label: Gallery limit
+    description: Images the gallery keeps. Past the limit the oldest gallery files are deleted; copies saved in other folders stay.
+  history_cap:
+    type: int
+    default: 200
+    label: History limit
+    description: Generations the history keeps.

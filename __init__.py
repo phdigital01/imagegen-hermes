@@ -11,6 +11,10 @@ so the model never sees two competing tools for one job. Instead ImageGen
 registers an ``image_gen`` provider. When the user picks it under Tools ->
 Image Generation, the agent's images go through ImageGen's providers and land
 in its gallery and budget (``imagegen_engine/chat_provider.py``).
+
+It also registers ``hermes imagegen``, the command line for scripts and coding
+agents (``imagegen_cli.py``). Hermes loads the profile picked with ``-p`` and
+its secrets before the command runs.
 """
 
 
@@ -38,3 +42,19 @@ def register(ctx) -> None:  # noqa: ANN001 - ctx is the host PluginContext
         from imagegen_engine.chat_provider import ImageGenChatProvider
 
         ctx.register_image_gen_provider(ImageGenChatProvider())
+
+    if hasattr(ctx, "register_cli_command"):
+        import importlib.util
+
+        # One gateway process hosts several profiles. A plain `import imagegen_cli` can return the module
+        # that another profile, or the version replaced by an update, already left in sys.modules.
+        source = backend / "imagegen_cli.py"
+        spec = importlib.util.spec_from_file_location(f"imagegen_cli_{abs(hash(str(source)))}", source)
+        imagegen_cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(imagegen_cli)
+
+        ctx.register_cli_command(
+            name="imagegen", help="Generate and edit images with ImageGen",
+            setup_fn=imagegen_cli.setup_hermes_command, handler_fn=imagegen_cli.run_hermes_command,
+            description="Generate or edit images with the profile's ImageGen providers, gallery and budget. "
+                        "Run `hermes -p <profile> imagegen --list` to see the providers.")

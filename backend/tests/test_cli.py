@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -217,3 +218,53 @@ def test_long_references_are_reduced_and_keep_orientation_and_transparency(tmp_p
     assert kept.format == "PNG" and kept.mode == "RGBA" and kept.size == (2048, 2048)
     assert imagegen_cli._reference_bytes(small) == small.read_bytes()
     assert imagegen_cli._reference_bytes(photo, 0) == photo.read_bytes()
+
+
+def test_profile_flag_points_to_the_hermes_subcommand(capsys: pytest.CaptureFixture) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        imagegen_cli.main(["--profile", "design", "--list"])
+    assert "hermes -p <profile> imagegen" in str(exit_info.value)
+
+
+def test_plugin_registers_the_hermes_subcommand(monkeypatch: pytest.MonkeyPatch) -> None:
+    import argparse
+    import importlib.util
+
+    root = Path(imagegen_cli.__file__).resolve().parent
+    spec = importlib.util.spec_from_file_location("imagegen_plugin_under_test", root / "__init__.py")
+    plugin = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(plugin)
+    commands = {}
+
+    class Ctx:
+        def register_cli_command(self, name, help, setup_fn, handler_fn=None, description=""):  # noqa: A002
+            commands[name] = (setup_fn, handler_fn)
+
+    from imagegen_engine import host_llm
+    import types
+
+    monkeypatch.setattr(host_llm, "_ctx", None)
+    # A shared gateway can hold an older imagegen_cli (another profile, or the version an update replaced).
+    monkeypatch.setitem(sys.modules, "imagegen_cli", types.ModuleType("imagegen_cli"))
+    plugin.register(Ctx())
+    setup, handler = commands["imagegen"]
+    parser = argparse.ArgumentParser(prog="hermes imagegen")
+    setup(parser)
+    calls = []
+    monkeypatch.setitem(handler.__globals__, "_run", lambda args: calls.append(args) or 0)
+    assert handler(parser.parse_args(["--list"])) == 0
+    assert calls and calls[0].list == ""
+    with pytest.raises(SystemExit):
+        handler(parser.parse_args(["--prompt", "a mug"]))  # --out is required to generate
+
+
+def test_gallery_and_history_limits_come_from_plugin_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    from imagegen_engine import host_llm
+
+    class Ctx:
+        def get_config(self, key, default=None):
+            return {"gallery_cap": 5, "history_cap": "0"}.get(key, default)
+
+    monkeypatch.setattr(host_llm, "_ctx", Ctx())
+    assert store.gallery_cap() == 5
+    assert store.history_cap() == store.HISTORY_CAP  # a non-positive value keeps the default
