@@ -90,7 +90,7 @@ export function TextSafeAreaPicker({
     reserve: reserveLabel || t('reserveText'),
     shortcuts: shortcutsLabel || t('shortcuts'),
     clickHint: clickHint || t('safeZoneHint'),
-    multiZoneHint: multiZoneHint || t('safeZoneHint'),
+
     preserve: preserveLabel || t('preserveHowMuch'),
     tone: toneLabel || t('zoneTone'),
     intensityValues: intensityOptions || ['Fully clean', 'Moderately clean', 'Lightly clean'],
@@ -197,7 +197,7 @@ export function TextSafeAreaPicker({
             <div className="text-[11px] text-(--ui-text-secondary)">{labels.clickHint}</div>
             <div
               className="mx-auto w-full overflow-hidden rounded-xl border-2 border-(--ui-stroke-secondary) bg-(--ui-bg) p-2 shadow-inner"
-              style={{ aspectRatio: aspect, maxHeight: 260 }}
+              style={{ aspectRatio: aspect, maxWidth: Math.min(360, 260 * (rw / rh || 1)), minHeight: 160 }}
             >
               <div
                 className="h-full w-full gap-1"
@@ -214,13 +214,14 @@ export function TextSafeAreaPicker({
                 ))}
               </div>
             </div>
-            <div className="text-[10px] leading-relaxed text-(--ui-text-quaternary)">{labels.multiZoneHint}</div>
+            {multiZoneHint && <div className="text-[10px] leading-relaxed text-(--ui-text-quaternary)">{multiZoneHint}</div>}
           </div>
 
           <div className="space-y-3">
             <div className="space-y-1">
               <FieldLabel>{labels.preserve}</FieldLabel>
               <select
+                aria-label={labels.preserve}
                 value={clean.intensity || 'Fully clean'}
                 onChange={(e) => onChange({ ...clean, intensity: e.target.value })}
                 className="h-8 w-full rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg) px-2 text-xs"
@@ -249,6 +250,7 @@ export function TextSafeAreaPicker({
             <div className="space-y-1">
               <FieldLabel>{labels.tone}</FieldLabel>
               <select
+                aria-label={labels.tone}
                 value={clean.tone || 'Automatic'}
                 onChange={(e) => onChange({ ...clean, tone: e.target.value })}
                 className="h-8 w-full rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg) px-2 text-xs"

@@ -93,6 +93,17 @@ def test_build_intent_includes_model_and_generation_context() -> None:
     assert intent["subjectIds"] == ["subject-1"]
 
 
+def test_disabled_accent_palette_is_kept_out_of_the_prompt_and_intent() -> None:
+    from imagegen_engine.prompt_builder import build_prompt
+
+    config = {"description": "Yellow umbrella", "colorAccents": ["#765432"]}
+    assert "#765432" in build_prompt(config)["prompt"]
+    config["colorAccentsEnabled"] = False
+    assert "#765432" not in build_prompt(config)["prompt"]
+    assert model_profiles.build_intent(config)["colorAccents"] == []
+    assert config["colorAccents"] == ["#765432"]
+
+
 def test_refine_from_feedback_returns_prompt_without_generating(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 

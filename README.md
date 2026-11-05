@@ -55,6 +55,11 @@ subscription or Nous Portal first, then your API keys.
 The interface follows the Hermes app language (English, Portuguese, Spanish
 or Chinese) and can be pinned to one of them.
 
+
+In **Generate**, describe the image and optionally enable **Optimize with AI**. Preview the suggestions to review or edit the prompt. Manual visual choices take priority. With confirmation enabled, Generate shows the final prompt and format before submitting the image. Changing the brief discards its previous suggestion.
+
+Use **Generate batch** for independent images. Enter one finished prompt per line (up to 32), review the model, shared settings and estimated cost when available, then start. Reopen the batch to follow its progress or retry one failed item. For variations of the same subject across scenes, use **Campaign**.
+
 ## Install
 
 1. In Hermes Desktop, open **Capabilities → Plugins → Install from Git**.

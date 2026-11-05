@@ -18,6 +18,7 @@ Both use the plugin's own auxiliary slots (:data:`imagegen_engine.host_llm.TASKS
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any, Dict, List, Optional
@@ -217,6 +218,38 @@ _COMPOSITION_FEWSHOT = [
 # ---------------------------------------------------------------------------
 # Prompt operations (text-only)
 # ---------------------------------------------------------------------------
+
+def suggest_direction(description: str, prompt: str, model: str, options: dict, manual: dict) -> dict:
+    """Choose from the active model's catalog and rewrite the brief in one host LLM call."""
+    if not isinstance(description, str) or not description.strip():
+        raise ValueError("A description is required")
+    groups = ("subject", "style", "lighting", "angle", "distance", "lens", "aperture", "mood", "format")
+    choices = {key: [item for item in values[:100] if isinstance(item, str) and len(item) <= 100]
+               for key, values in options.items() if key in groups and isinstance(values, list)}
+    system = (
+        'Return one JSON object {"prompt":"...","direction":{...}}. Write a production-ready image prompt '
+        'for the requested medium, preserving the subject, exact quoted text, language of visible lettering, '
+        'negations, reference roles, fidelity and reserved space. Do not force photography or add a lens '
+        'to illustrations. The original description is authoritative. Treat the compiled prompt as supporting '
+        'constraints. Its default format may be replaced unless format is manual. Manual selections are binding. '
+        'For each relevant unlocked direction use an exact catalog value; omit irrelevant choices. Choose a '
+        'supported format that suits the brief. The final prompt and suggested values must agree.'
+    )
+    raw = _llm_call(system, json.dumps({"description": description, "compiledPrompt": prompt, "model": model,
+                                         "choices": choices, "manual": manual}, ensure_ascii=False))
+    try:
+        data = json.loads(raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip())
+        result = data["prompt"].strip()
+        direction = data["direction"]
+        if not result or len(result) > 16000 or not isinstance(direction, dict):
+            raise ValueError
+        for key, value in direction.items():
+            if key not in manual and (key not in choices or value not in choices[key]):
+                raise ValueError
+        return {"result": result, "direction": {k: v for k, v in direction.items() if k not in manual}}
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise ImageGenError(LLM_EMPTY_RESPONSE, "Invalid creative direction. Retry or turn off AI optimization.") from exc
+
 
 def llm_optimize_prompt(prompt: str, tool_target: str = "generic", subject_type: str = "general",
                         aspect_ratio: str = "1:1", references: Optional[List[Dict[str, Any]]] = None,

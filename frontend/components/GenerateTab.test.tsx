@@ -13,7 +13,7 @@
  * The network layer (../api) and @hermes/plugin-sdk are mocked; nothing makes
  * a real request. ui-helpers, presets and i18n are real.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useState, type ButtonHTMLAttributes, type ComponentPropsWithoutRef, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react'
 
@@ -77,7 +77,8 @@ vi.mock('@hermes/plugin-sdk', () => ({
   Tip: ({ label, children }: { label?: string; children?: ReactNode }) => <div>{label}{children}</div>
 }))
 
-vi.mock('../api', () => ({
+vi.mock('../api', async (original) => ({
+  ...(await original<typeof import('../api')>()),
   ID: 'imagegen',
   rest: api.rest,
   getStored: api.getStored,
@@ -105,6 +106,7 @@ const providers: Provider[] = [
   {
     name: 'fal',
     display_name: 'Fal',
+    configured: true,
     models: [
       {
         id: 'flux',
@@ -153,12 +155,16 @@ const baseConfig: ImageGenConfig = {
 function Harness({
   config = baseConfig,
   prompt = '',
-  presets = null
+  presets = null,
+  restored = false
 }: {
+  restored?: boolean
   config?: ImageGenConfig
   prompt?: string
   presets?: Presets | null
 }) {
+  const [manual, setManual] = useState(restored)
+  const [touched, setTouched] = useState(restored)
   const [cfg, setCfg] = useState<ImageGenConfig>(config)
   const [promptValue, setPromptValue] = useState(prompt)
   return (
@@ -171,12 +177,14 @@ function Harness({
         onGoToTab={() => {}}
         prompt={promptValue}
         setPrompt={setPromptValue}
-        promptTouched={false}
-        setPromptTouched={() => {}}
-        promptManual={false}
-        setPromptManual={() => {}}
+        promptTouched={touched}
+        setPromptTouched={setTouched}
+        promptManual={manual}
+        setPromptManual={setManual}
         skipConfirm={false}
         setSkipConfirm={() => {}}
+        lastResult={null}
+        setLastResult={() => {}}
         activeJobId={null}
         setActiveJobId={() => {}}
       />
@@ -197,6 +205,7 @@ beforeEach(() => {
   api.fetchSubjectLibrary.mockReset()
   api.loadSessionPrompts.mockReset()
   api.pushSessionPrompt.mockReset()
+  api.pushSessionPrompt.mockImplementation((text: string) => [text])
   api.submitJob.mockReset()
   api.queryJobResult.mockReset()
   api.fetchLocalImagePath.mockReset()
@@ -234,9 +243,39 @@ describe('GenerateTab — generate disabled with a visible reason', () => {
     expect(reason?.textContent).toBe('Describe the image to generate it.')
   })
 
+  it('rebuilds a restored manual prompt before the next description can be submitted', async () => {
+    api.rest.mockResolvedValue({ prompt: 'Yellow umbrella' })
+    render(<Harness restored config={{ ...baseConfig, description: 'Demo scooter' }} prompt="Demo scooter" />)
+    const field = screen.getAllByRole('textbox').find((item) => (item as HTMLTextAreaElement).value === 'Demo scooter')!
+    fireEvent.change(field, { target: { value: 'Yellow umbrella' } })
+    const generate = screen.getByRole('button', { name: 'Generate image' }) as HTMLButtonElement
+    expect(generate.disabled).toBe(true)
+    await waitFor(() => expect(generate.disabled).toBe(false))
+    fireEvent.click(generate)
+    expect(screen.getByText('Yellow umbrella', { selector: 'p, div' })).toBeTruthy()
+  })
+
+  it('uses the reviewed AI prompt and suggested format exactly once', async () => {
+    api.rest.mockImplementation(async (path: string) => path === '/llm/optimize'
+      ? { result: 'An umbrella in the rain', direction: { format: '16:9' } }
+      : { prompt: 'Umbrella' })
+    render(<Harness config={{ ...baseConfig, description: 'Umbrella', optimizeOnGenerate: true }} />)
+    const generate = screen.getByRole('button', { name: 'Generate image' }) as HTMLButtonElement
+    await waitFor(() => expect(generate.disabled).toBe(false))
+    fireEvent.click(generate)
+    await screen.findByText('An umbrella in the rain', { selector: 'p, div' })
+    const reviewed = screen.getByRole('textbox', { name: /Optimized prompt/ })
+    fireEvent.change(reviewed, { target: { value: 'An umbrella in a garden' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+    await waitFor(() => expect(api.submitJob).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: 'An umbrella in a garden', aspectRatio: '16:9'
+    })))
+    expect(api.rest.mock.calls.filter(([path]) => path === '/llm/optimize')).toHaveLength(1)
+  })
+
   it('enables Generate when the image is described and the prompt exists', () => {
     const described = { ...baseConfig, description: 'A red car at dusk' }
-    render(<Harness config={described} prompt="A red car at dusk" />)
+    render(<Harness restored config={described} prompt="A red car at dusk" />)
     const generate = screen.getByRole('button', { name: 'Generate image' }) as HTMLButtonElement
     expect(generate.disabled).toBe(false)
     expect(generate.getAttribute('aria-describedby')).toBeNull()

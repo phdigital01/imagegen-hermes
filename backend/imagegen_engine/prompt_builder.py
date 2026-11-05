@@ -119,7 +119,7 @@ def build_prompt(config: Dict[str, Any]) -> Dict[str, str]:
         raw = _append_reference_annotation(_build_advanced_prompt(effective), effective)
 
     colors = [str(value) for value in (config.get("colorAccents") or []) if isinstance(value, str)]
-    if colors:
+    if colors and config.get("colorAccentsEnabled") is not False:
         raw = f"Accent color palette: {', '.join(colors)}. {raw}"
     prompt_body, negative = _split_raw_prompt(raw)
     family = _family_for_config(config)

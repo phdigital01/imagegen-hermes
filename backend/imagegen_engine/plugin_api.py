@@ -55,7 +55,7 @@ if str(_DASH_PARENT) not in sys.path:
 from fastapi import APIRouter
 
 from imagegen_engine.api_core import _ImageGenRoute
-from imagegen_engine.routes import generation, jobs, library, llm, media, system
+from imagegen_engine.routes import batches, generation, jobs, library, llm, media, system
 
 # Mount the domain routers in order (system, llm, jobs, generation, library,
 # media). Note: FastAPI >= 0.141 wraps ``include_router`` lazily
@@ -67,6 +67,7 @@ router = APIRouter(route_class=_ImageGenRoute)
 router.routes.extend(system.router.routes)
 router.routes.extend(llm.router.routes)
 router.routes.extend(jobs.router.routes)
+router.routes.extend(batches.router.routes)
 router.routes.extend(generation.router.routes)
 router.routes.extend(library.router.routes)
 router.routes.extend(media.router.routes)

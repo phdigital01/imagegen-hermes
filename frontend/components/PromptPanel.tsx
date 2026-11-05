@@ -160,7 +160,7 @@ export function PromptPanel({
           <Codicon name={copied ? 'check' : 'copy'} style={{ fontSize: 12 }} />
           {copied ? labels.copied : labels.copy}
         </Button>
-        <Button
+        {onOptimize && <Button
           size="sm"
           variant="outline"
           className="h-7 text-xs gap-1"
@@ -169,7 +169,7 @@ export function PromptPanel({
         >
           {optimizing ? <Spinner /> : <Codicon name="sparkle" style={{ fontSize: 12 }} />}
           {optimizing ? labels.optimizing : labels.optimize}
-        </Button>
+        </Button>}
         <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" disabled={!value || translating} onClick={doTranslate}>
           {translating ? <Spinner /> : <Codicon name="globe" style={{ fontSize: 12 }} />}
           {labels.translate}

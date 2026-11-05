@@ -3,6 +3,6 @@
   "label": "ImageGen",
   "description": "Image generation studio — every Hermes image provider, a professional prompt builder, reference-driven composition, editing, and a unified gallery",
   "icon": "Image",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "api": "plugin_api.py"
 }

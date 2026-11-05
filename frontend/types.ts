@@ -74,6 +74,9 @@ export interface ImageGenConfig {
   description: string
   structuredFields: Record<string, string | string[]>
   globalDirection: GlobalDirection
+  optimizeOnGenerate?: boolean
+  manualFormat?: boolean
+  directionVersion?: number
   subjectDistance: string
   aspectRatio: string
   qualityLevel: string
@@ -92,6 +95,7 @@ export interface ImageGenConfig {
   qualityTier?: QualityTier
   numImages?: number
   seed?: number | string
+  colorAccentsEnabled?: boolean
   colorAccents?: string[]
 }
 

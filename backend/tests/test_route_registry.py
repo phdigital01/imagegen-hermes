@@ -22,6 +22,9 @@ from imagegen_engine.routes import generation, jobs, library, llm, media, system
 # list is irrelevant (compared sorted); it pins the exact surface so a lost
 # route fails loudly.
 EXPECTED_ROUTES = [
+    ("GET", "/batches/latest"),
+    ("POST", "/batches"),
+    ("POST", "/batches/{batch_id}/items/{index}/retry"),
     ("GET", "/health"),
     ("GET", "/providers"),
     ("GET", "/providers/status"),

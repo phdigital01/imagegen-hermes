@@ -165,7 +165,8 @@ vi.mock('@hermes/plugin-sdk', async () => {
   }
 })
 
-vi.mock('../api', () => ({
+vi.mock('../api', async (original) => ({
+  ...(await original<typeof import('../api')>()),
   ID: 'imagegen',
   fetchFeed: vi.fn(),
   fetchFeedStats: vi.fn(() => Promise.resolve({ stats: { total: 0, saved: 0, generated: 0 } })),

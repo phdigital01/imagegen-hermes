@@ -6,7 +6,7 @@
 import { Badge, Button, Codicon, Dialog, DialogContent, DialogHeader, DialogTitle, Input, KbdGroup, Textarea, cn, host, queryClient, useQuery } from '@hermes/plugin-sdk'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { ImageGenConfig, LibraryObject, Presets, Provider, ReferenceImage, SubjectLibraryEntry } from '../types'
+import type { ImageGenConfig, JobResult, LibraryObject, Presets, Provider, ReferenceImage, SubjectLibraryEntry } from '../types'
 import {
   ID,
   ImageGenApiError,
@@ -35,12 +35,11 @@ import { jobPollMs } from '../jobEvents'
 import { providerReady } from '../access'
 import { useImageGenT } from '../i18n'
 import {
-  QUICK_RECIPES,
+  DEFAULT_CONFIG,
   aspectOptions,
   computeAlerts,
   configForHistory,
   configForPrompt,
-  deriveQuickDefaults,
   fieldOptions,
   persistReferenceImage,
   prepareReferences,
@@ -66,9 +65,10 @@ import {
 } from './ui-helpers'
 import { CompositionTab } from './CompositionTab'
 import { PreGenSummary } from './PreGenSummary'
-import { DirectionBoard, DirectionStudio, type DirectionTab } from './DirectionStudio'
+import { directionOptions, DirectionBoard, DirectionStudio, type DirectionTab } from './DirectionStudio'
 import { ModelCatalogModal } from './ModelCatalogModal'
 import { PromptPanel } from './PromptPanel'
+import { BatchGenerate } from './BatchGenerate'
 import { JobProgress, ResultGrid } from './ResultGrid'
 import { TextSafeAreaPicker } from './TextSafeAreaPicker'
 import { SubjectLibrary } from './SubjectLibrary'
@@ -87,6 +87,8 @@ interface GenerateTabProps {
   setPromptManual: (value: boolean) => void
   skipConfirm: boolean
   setSkipConfirm: (value: boolean) => void
+  lastResult: JobResult | null
+  setLastResult: (result: JobResult | null) => void
   activeJobId: string | null
   setActiveJobId: (id: string | null) => void
   onOpenSettings?: () => void
@@ -127,6 +129,8 @@ export function GenerateTab({
   setSkipConfirm,
   activeJobId,
   setActiveJobId,
+  lastResult,
+  setLastResult,
   onOpenSettings
 }: GenerateTabProps) {
   const t = useImageGenT()
@@ -145,7 +149,7 @@ export function GenerateTab({
   const [upscaleProvider, setUpscaleProvider] = useState(() => !providerReady(providers, 'fal') && providerReady(providers, 'magnific') ? 'magnific' : 'fal')
   const [accessNotice, setAccessNotice] = useState('')
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
-  const [lastResult, setLastResult] = useState<{ images: string[]; gallery_ids?: string[]; warnings?: string[] } | null>(null)
+  useEffect(() => { setPendingAction(null) }, [config])
   const [seed, setSeed] = useState('')
   const [numImages, setNumImages] = useState(config.numImages || 1)
   const [feedbackImage, setFeedbackImage] = useState<string | null>(null)
@@ -189,7 +193,10 @@ export function GenerateTab({
     () => !!config.cleanZones?.enabled && config.compositionIntent?.status === 'confirmed' && (((config.compositionIntent as unknown as { sceneComplexity?: string })?.sceneComplexity === 'complex') || config.subjectType === 'ambiente_arquitetura'),
     [config.cleanZones, config.compositionIntent, config.subjectType]
   )
-  const hasPrompt = prompt.trim().length > 0
+  const [builtFor, setBuiltFor] = useState<ImageGenConfig | null>(null)
+  const hasPrompt = prompt.trim().length > 0 && (promptManual || promptTouched || builtFor === config)
+  const palette = config.colorAccents || []
+  const paletteEnabled = config.colorAccentsEnabled ?? palette.length > 0
   const fields = fieldOptions(presets, config.subjectType)
   const objectsQuery = useQuery({
     queryKey: [ID, 'objects'],
@@ -226,7 +233,11 @@ export function GenerateTab({
     let stale = false
     const timer = setTimeout(() => {
       rest<{ formatted?: unknown; prompt?: string }>('/prompt/build', 'POST', { config: configForPrompt(config, { provider, selectedModel: model }) })
-        .then((payload) => { if (!stale) setPrompt(promptText(payload.formatted) || promptText(payload.prompt)) })
+        .then((payload) => {
+          if (stale) return
+          setPrompt(promptText(payload.formatted) || promptText(payload.prompt))
+          setBuiltFor(config)
+        })
         .catch((error) => {
           if (stale) return
           // Fixed id: repeated background failures replace the same toast
@@ -241,36 +252,9 @@ export function GenerateTab({
     updateConfig({ globalDirection: { ...config.globalDirection, ...partial } })
   }
 
-  const lastSuggestion = useRef<Record<string, unknown>>({})
-  const applyQuickDefaults = (subjectType: string) => {
-    const defaults = deriveQuickDefaults(subjectType, config.description) as unknown as Record<string, unknown>
-    // A subject suggests a direction, but never replaces what the person chose on the board.
-    const direction = config.globalDirection as unknown as Record<string, unknown>
-    const suggested = { ...defaults }
-    for (const key of Object.keys(defaults)) {
-      const current = key === 'subjectDistance' ? config.subjectDistance : direction[key]
-      const empty = current === '' || current === undefined || (Array.isArray(current) && !current.length)
-      if (!empty && JSON.stringify(current) !== JSON.stringify(lastSuggestion.current[key])) suggested[key] = current
-    }
-    lastSuggestion.current = defaults
-    updateConfig({
-      subjectType,
-      globalDirection: { ...config.globalDirection, ...suggested, useReferenceAngle: false, fidelityMode: 'balanced' },
-      subjectDistance: String(suggested.subjectDistance ?? ''),
-      qualityLevel: 'alta',
-      structuredFields: {},
-      negativePrompt: presets?.default_negatives?.[subjectType] || presets?.generic_negative || ''
-    })
-  }
-
-  const lastSuggestedRatio = useRef(config.aspectRatio)
-  const chooseSubject = (subject: string) => {
-    applyQuickDefaults(subject)
-    const recipe = QUICK_RECIPES.find((item) => item.subject === subject)
-    if (!recipe || config.aspectRatio !== lastSuggestedRatio.current) return
-    lastSuggestedRatio.current = recipe.ratio
-    updateConfig({ aspectRatio: recipe.ratio })
-  }
+  const chooseSubject = (subject: string) => updateConfig({
+    directionVersion: 1, subjectType: subject, structuredFields: {}
+  })
 
   const attachImages = (files: File[]) => {
     const images = files.filter((file) => file.type.startsWith('image/'))
@@ -327,34 +311,68 @@ export function GenerateTab({
     }
   }
 
-  const doOptimize = async () => {
+  const [suggestion, setSuggestion] = useState<{ source: ImageGenConfig; base: string; result: string; suggestedFormat: boolean; effective: ImageGenConfig } | null>(null)
+  const preview = suggestion?.source === config && suggestion.base === prompt ? suggestion : null
+  const aiEnabled = config.optimizeOnGenerate === true && !promptManual && !promptTouched
+  const latestSource = useRef<{ config: ImageGenConfig; prompt: string } | null>(null)
+  latestSource.current = { config, prompt }
+  useEffect(() => () => { latestSource.current = null }, [])
+  const [aiError, setAiError] = useState<{ source: ImageGenConfig; message: string } | null>(null)
+  const optimizingRef = useRef(false)
+  const getSuggestion = async () => {
+    if (preview) return preview
+    if (optimizingRef.current) return null
+    setAiError(null)
+    optimizingRef.current = true
     setOptimizing(true)
+    setPendingAction(null)
     try {
-      const payload = await rest<{ result: string }>('/llm/optimize', 'POST', {
-        prompt,
-        description: config.description,
-        toolTarget: model,
-        subjectType: config.subjectType,
-        aspectRatio: config.aspectRatio,
-        references: refs.map(referenceMeta)
+      const visual = config.globalDirection
+      const manual = Object.fromEntries(Object.entries({
+        subject: config.subjectType === 'livre' ? '' : config.subjectType, style: visual.style,
+        lighting: visual.lighting.join(', '), angle: visual.angle, distance: config.subjectDistance,
+        lens: visual.lens, aperture: visual.aperture, mood: config.mood, format: config.manualFormat ? config.aspectRatio : ''
+      }).filter(([, value]) => value))
+      const groups = ['subject', 'style', 'lighting', 'angle', 'distance', 'lens', 'aperture', 'mood'] as const
+      const choices = Object.fromEntries(groups.map(group => [group, directionOptions(presets, group)]))
+      choices.format = ratios.map(ratio => ratio.value)
+      const { result, direction: pick } = await rest<{ result: string; direction: Record<string, string> }>('/llm/optimize', 'POST', {
+        prompt, description: config.description, toolTarget: model, directionOptions: choices, manual
       })
-      setPrompt(payload.result || prompt)
-      setPromptTouched(true)
-      setPromptManual(true)
+      if (latestSource.current?.config !== config || latestSource.current.prompt !== prompt) return null
+      const effective = { ...config, subjectType: pick.subject || config.subjectType, mood: pick.mood || config.mood,
+        aspectRatio: pick.format || config.aspectRatio, subjectDistance: pick.distance || config.subjectDistance,
+        globalDirection: { ...visual, style: pick.style || visual.style, lighting: pick.lighting ? [pick.lighting] : visual.lighting,
+          angle: pick.angle || visual.angle, lens: pick.lens || visual.lens, aperture: pick.aperture || visual.aperture } }
+      const next = { source: config, base: prompt, result, suggestedFormat: !!pick.format, effective }
+      setSuggestion(next)
+      return next
+    } catch (error) {
+      if (latestSource.current?.config === config) setAiError({ source: config, message: error instanceof Error ? error.message : String(error) })
+      return null
     } finally {
+      optimizingRef.current = false
       setOptimizing(false)
     }
   }
 
   const startGenerate = async (promptOverride?: string, refsOverride?: ReferenceImage[]) => {
-    const activePrompt = (promptOverride ?? prompt).trim()
-    if (!activePrompt || activeJobId || submittingRef.current) return
+    let activePrompt = (promptOverride ?? prompt).trim()
+    if ((!promptOverride && !hasPrompt) || !activePrompt || activeJobId || submittingRef.current) return
     submittingRef.current = true
     setSubmitting(true)
     setPendingAction(null)
     try {
+      let effective = config
+      if (!promptOverride && aiEnabled) {
+        const suggestion = await getSuggestion()
+        if (!suggestion || !suggestion.result.trim()) return
+        activePrompt = suggestion.result.trim()
+        effective = suggestion.effective
+      }
       const sourceRefs = refsOverride ?? refs
       const prepared = await prepareReferences(sourceRefs)
+      if (latestSource.current?.config !== config || latestSource.current.prompt !== prompt) return
       if (prepared.changed) updateConfig({ referencesV4: prepared.ready })
       const payload = {
         kind: 'generate',
@@ -362,14 +380,14 @@ export function GenerateTab({
         provider,
         model,
         prompt: activePrompt,
-        aspectRatio: config.aspectRatio,
+        aspectRatio: effective.aspectRatio,
         seed: modelInfo?.supportsSeed === false ? undefined : seed ? Number(seed) : undefined,
         negativePrompt: config.negativePrompt,
         numImages,
         resolution: config.resolution || '1K',
         referenceImages: prepared.sources,
         saveToGallery: config.saveToGallery !== false,
-        config: configForHistory(config)
+        config: configForHistory({ ...effective, referencesV4: prepared.ready })
       }
       const response = await submitJob(payload)
       setActiveJobId(response.id)
@@ -386,9 +404,25 @@ export function GenerateTab({
     }
   }
 
+  const prepareBatch = async () => {
+    const prepared = await prepareReferences(refs)
+    if (prepared.changed) updateConfig({ referencesV4: prepared.ready })
+    return {
+      provider, model, aspectRatio: config.aspectRatio, resolution: config.resolution,
+      negativePrompt: config.negativePrompt, referenceImages: prepared.sources,
+      seed: seed && modelInfo?.supportsSeed !== false ? Number(seed) : undefined,
+      config: configForHistory({ ...config, referencesV4: prepared.ready })
+    }
+  }
+  const batchBlock = !providerReady(providers, provider) || !model
+    ? t('batch.access')
+    : alerts.blocking.find(alert => !['no-description', 'refs-without-intent'].includes(alert.id))?.message || ''
+
   const requestGenerate = () => {
-    if (alerts.blocking.length > 0 || !hasPrompt || refMismatch || budgetExceeded) return
-    if (skipConfirm) {
+    if (generateDisabled) return
+    if (aiEnabled && !preview && !skipConfirm) {
+      void getSuggestion().then(next => { if (next) setPendingAction('generate') })
+    } else if (skipConfirm) {
       void startGenerate()
     } else {
       setPendingAction('generate')
@@ -542,16 +576,16 @@ export function GenerateTab({
   const costEstimate = modelInfo?.price ? `~${modelInfo.price}` : ''
   // A disabled Generate button must say why in visible text, not color alone;
   // the reason is associated to the button via aria-describedby.
-  const generateDisabled = alerts.blocking.length > 0 || !hasPrompt || submitting || !!activeJobId || refMismatch || budgetExceeded
-  const generateDisabledReason = !hasPrompt
-    ? t('describeToGenerate')
+  const generateDisabled = optimizing || (aiEnabled && preview !== null && !preview.result.trim()) || !providerReady(providers, provider) || alerts.blocking.length > 0 || !hasPrompt || submitting || !!activeJobId || refMismatch || budgetExceeded
+  const generateDisabledReason = optimizing ? t('analyzing') : !hasPrompt
+    ? config.description.trim() ? t('buildingPrompt') : t('describeToGenerate')
     : refMismatch
       ? t('refMismatch', { count: String(refs.length), max: String(maxRefs) })
       : budgetExceeded && budgetLimit !== null && estimateUsd !== null
         ? t('budget.exceeded', { spent: formatUsd(spentThisMonth), limit: formatUsd(budgetLimit), estimate: formatUsd(estimateUsd) })
         : activeJobId
           ? t('generating')
-          : alerts.blocking[0]?.message || ''
+          : !providerReady(providers, provider) ? t('batch.access') : alerts.blocking[0]?.message || ''
 
   // References section — always visible (the user's standing request: the
   // reference surface must never hide behind a collapsed card). Thumbnails
@@ -637,7 +671,19 @@ export function GenerateTab({
           >
             <Textarea value={config.description} rows={5} aria-label={t('describeImage')} className="min-h-28 resize-y rounded-none border-0 bg-transparent px-3 py-3 text-sm leading-relaxed focus-visible:ring-0" placeholder={t('describeImageHint')} onPaste={(event) => {
               if (attachImages(Array.from(event.clipboardData.files))) event.preventDefault()
-            }} onChange={(event) => updateConfig({ description: event.target.value })} />
+            }} onChange={(event) => {
+              setPrompt('')
+              setPromptManual(false)
+              setPromptTouched(false)
+              setPendingAction(null)
+              const legacy = !config.directionVersion
+              updateConfig({ ...(legacy ? {
+                globalDirection: { ...config.globalDirection, style: '', angle: '', lens: '', aperture: '', lighting: [] },
+                mood: '', subjectDistance: '', subjectType: '', structuredFields: {}, manualFormat: false,
+                negativePrompt: config.negativePrompt === presets?.default_negatives?.[config.subjectType] ? '' : config.negativePrompt,
+                aspectRatio: modelInfo?.aspectRatios?.[0] || DEFAULT_CONFIG.aspectRatio
+              } : {}), directionVersion: 1, description: event.target.value, compositionIntent: null })
+            }} />
             <div className="if-describe-refs">
               <button type="button" className="if-refs-add" onClick={() => setRefsOpen(true)}>
                 <Codicon name="add" style={{ fontSize: 12 }} />
@@ -654,17 +700,44 @@ export function GenerateTab({
           </div>
           {pasteError && <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/8 p-2 text-xs"><Codicon name="error" className="mt-0.5 text-red-500" style={{ fontSize: 13 }} /><span className="text-red-600 dark:text-red-400">{t('uploadFailed')}: {pasteError}</span></div>}
 
-          <DirectionBoard config={config} onOpen={setStudioTab} />
+          <div className="if-ai-controls">
+            <label><input type="checkbox" checked={aiEnabled} disabled={promptManual || promptTouched} onChange={event => updateConfig({ optimizeOnGenerate: event.target.checked })} /> {t('ai.optimize')}</label>
+            {aiEnabled && <Button size="sm" variant="ghost" disabled={!hasPrompt || optimizing || !presets} onClick={() => void getSuggestion()}>{optimizing ? t('analyzing') : t('ai.preview')}</Button>}
+          </div>
+          {aiEnabled && aiError?.source === config && <p role="alert" className="text-xs">{aiError.message} {t('ai.failure')}</p>}
+          {aiEnabled && preview && <label className="space-y-1 text-xs">{t('ai.result')}
+            <Textarea value={preview.result} rows={4} onChange={event => setSuggestion({ ...preview, result: event.target.value })} />
+          </label>}
+          <DirectionBoard manual={aiEnabled && preview ? config : undefined} config={aiEnabled && preview ? preview.effective : config} autoFormat={!config.manualFormat && !(aiEnabled && preview?.suggestedFormat)} onOpen={setStudioTab} />
 
           <SectionCard title={t('moreOptions')} defaultOpen={false}>
-            <div className="gap-3" style={GRID(2)}>
+            <div className="if-advanced-grid gap-3">
               <div className="space-y-1"><FieldLabel>{t('quality')}</FieldLabel><div className="flex flex-wrap gap-1">{([['draft', t('draft')], ['standard', t('standard')], ['max', t('max')]] as const).map(([value, label]) => <Chip key={value} active={(config.qualityTier || 'standard') === value} onClick={() => updateConfig({ qualityTier: value, qualityLevel: value })}>{label}</Chip>)}</div></div>
               <div className="space-y-1"><FieldLabel>{t('variants')}</FieldLabel><div className="flex gap-1">{[1, 2, 4].map((value) => <Chip key={value} active={numImages === value} onClick={() => setNumImages(value)}>{value}</Chip>)}</div></div>
               {resolutionOptions.length > 0 && <div className="space-y-1"><FieldLabel>{t('resolution')}</FieldLabel><NativeSelect value={config.resolution || '1K'} onChange={(value) => updateConfig({ resolution: value })} options={resolutionOptions} /></div>}
               {modelInfo?.supportsSeed !== false && <div className="space-y-1"><FieldLabel>Seed ({t('optional')})</FieldLabel><div className="flex gap-1"><Input value={seed} className="h-8 min-w-0 flex-1 text-xs font-mono" placeholder={t('automatic')} onChange={(event) => setSeed(event.target.value.replace(/\D/g, '').slice(0, 10))} /><Chip active={seedLocked} onClick={() => setSeedLocked(!seedLocked)}>{seedLocked ? t('seedLocked') : t('lockSeed')}</Chip></div></div>}
-              <div className="space-y-1" style={{ gridColumn: '1 / -1' }}><FieldLabel>{t('fidelity')}</FieldLabel><div className="flex flex-wrap gap-1">{[['faithful', t('fullyClean')], ['balanced', t('moderatelyClean')], ['creative', t('lightlyClean')]].map(([value, label]) => <Chip key={value} active={config.globalDirection.fidelityMode === value} onClick={() => setDirection({ fidelityMode: value })}>{label}</Chip>)}</div></div>
+              <div className="space-y-1" style={{ gridColumn: '1 / -1' }}><FieldLabel>{t('fidelity')}</FieldLabel><div className="flex flex-wrap gap-1">{[['faithful', t('skinMode.faithful')], ['balanced', t('balancedFidelity')], ['creative', t('creative')]].map(([value, label]) => <Chip key={value} active={config.globalDirection.fidelityMode === value} onClick={() => setDirection({ fidelityMode: value })}>{label}</Chip>)}</div></div>
               <div className="space-y-1" style={{ gridColumn: '1 / -1' }}><FieldLabel hint={t('negativePromptHint')}>{t('negativePrompt')}</FieldLabel><Textarea value={config.negativePrompt} rows={2} className="text-xs" onChange={(event) => updateConfig({ negativePrompt: event.target.value })} /></div>
-              <div className="space-y-1" style={{ gridColumn: '1 / -1' }}><FieldLabel>{t('colorAccents')}</FieldLabel><div className="flex flex-wrap items-center gap-2"><input type="color" aria-label={t('colorAccents')} value={config.colorAccents?.[0] || '#7c3aed'} onChange={(event) => updateConfig({ colorAccents: [event.target.value, ...(config.colorAccents || []).slice(1, 5)] })} /><div className="flex flex-wrap gap-1">{(config.colorAccents || []).map((color, index) => <button key={`${color}-${index}`} type="button" className="h-6 w-6 rounded-full border border-(--ui-stroke-secondary)" style={{ backgroundColor: color }} title={color} onClick={() => updateConfig({ colorAccents: (config.colorAccents || []).filter((_, i) => i !== index) })} />)}</div></div></div>
+              <div className="space-y-2" style={{ gridColumn: '1 / -1' }}>
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={paletteEnabled} onChange={(event) => {
+                    updateConfig({ colorAccentsEnabled: event.target.checked, colorAccents: palette.length ? palette : ['#7c3aed'] })
+                  }} />
+                  {t('colorAccents')}
+                </label>
+                {paletteEnabled && <div className="flex flex-wrap items-center gap-2">
+                  {palette.map((color, index) => <div key={index} className="flex items-center gap-1">
+                    <input type="color" aria-label={`${t('colorAccents')} ${index + 1}`} value={color} onChange={(event) => {
+                      updateConfig({ colorAccents: palette.map((value, i) => i === index ? event.target.value : value) })
+                    }} />
+                    <button type="button" aria-label={`${t('remove')} ${color}`} onClick={() => {
+                      const next = palette.filter((_, i) => i !== index)
+                      updateConfig({ colorAccents: next, colorAccentsEnabled: next.length > 0 })
+                    }}>×</button>
+                  </div>)}
+                  {palette.length < 5 && <Button size="sm" variant="outline" onClick={() => updateConfig({ colorAccents: [...palette, '#7c3aed'] })}>{t('add')}</Button>}
+                </div>}
+              </div>
             </div>
             <SectionCard title={t('reserveSpace')} subtitle={config.cleanZones.enabled ? `${config.cleanZones.zones.length} ${t('zonesCount')}` : undefined} defaultOpen={config.cleanZones.enabled}>
               <TextSafeAreaPicker value={config.cleanZones} ratio={config.aspectRatio} onChange={(cleanZones) => updateConfig({ cleanZones })} subjectType={config.subjectType} sceneComplexity={(config.compositionIntent as unknown as { sceneComplexity?: string })?.sceneComplexity} suppressed={cleanZonesSuppressed} />
@@ -687,17 +760,32 @@ export function GenerateTab({
                 ))}
               </div>
             )}
-            <PromptPanel value={prompt} onChange={(value) => { setPromptTouched(true); setPrompt(value) }} onOptimize={() => { if (skipConfirm) void doOptimize(); else setPendingAction('optimize') }} onResetAuto={() => { setPromptTouched(false); setPromptManual(false); setPrompt('') }} promptTouched={promptTouched} optimizing={optimizing} disabled={alerts.blocking.length > 0} toolTarget={model || 'generic'} magnificHelpers={magnificReady} readOnly={!promptManual} onEditManual={() => { setPromptManual(true); setPromptTouched(true) }} />
+            {aiEnabled && preview ? <Textarea aria-label={t('finalPrompt')} value={preview.result} rows={5}
+              onChange={event => setSuggestion({ ...preview, result: event.target.value })} /> : <PromptPanel value={prompt} onChange={(value) => { setPromptTouched(true); setPrompt(value) }} onOptimize={promptManual || promptTouched ? () => {
+              if (optimizingRef.current) return
+              optimizingRef.current = true
+              setOptimizing(true)
+              void rest<{ result: string }>('/llm/optimize', 'POST', { prompt, description: config.description, toolTarget: model, aspectRatio: config.aspectRatio, references: refs.map(referenceMeta) })
+                .then(data => { if (latestSource.current?.config === config && latestSource.current.prompt === prompt) setPrompt(data.result) }).catch(error => host.notifyError(error, t('optimizePrompt')))
+                .finally(() => { optimizingRef.current = false; setOptimizing(false) })
+            } : undefined} onResetAuto={() => { setPromptTouched(false); setPromptManual(false); setPrompt('') }} promptTouched={promptTouched} optimizing={optimizing} disabled={alerts.blocking.length > 0} toolTarget={model || 'generic'} magnificHelpers={magnificReady} readOnly={!promptManual} onEditManual={() => { setPromptManual(true); setPromptTouched(true) }} />}
           </SectionCard>
         </div>
 
         <div className="if-composer-footer">
+          {(promptManual || promptTouched) && <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
+            <span>{t('manualPromptActive')}</span>
+            <button type="button" onClick={() => { setPrompt(''); setPromptManual(false); setPromptTouched(false) }}>{t('resetAuto')}</button>
+          </div>}
           <Button onClick={requestGenerate} disabled={generateDisabled} aria-describedby={generateDisabled && generateDisabledReason ? 'if-generate-disabled-reason' : undefined} className="h-10 w-full gap-1.5 font-semibold">{activeJobId ? <Spinner /> : <Codicon name={lastResult ? 'refresh' : 'sparkle'} style={{ fontSize: 14 }} />}{activeJobId ? t('generating') : lastResult ? t('generateAgain') : t('generateImage')}</Button>
+          <BatchGenerate model={modelInfo?.display || model} aspect={config.aspectRatio} refs={refs.length}
+            blocked={batchBlock} estimate={parseEstimateUsd(modelInfo?.price, 1)}
+            remaining={budgetLimit === null ? null : budgetLimit - spentThisMonth} prepare={prepareBatch} />
           {generateDisabled && generateDisabledReason && <p id="if-generate-disabled-reason" className="text-[10.5px] text-(--ui-text-tertiary)">{generateDisabledReason}</p>}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-(--ui-text-tertiary)">
             {costEstimate && <span>{costEstimate}</span>}
             {budgetLimit !== null && <span className="tabular-nums">{t('budgetUsage', { spent: formatUsd(spentThisMonth), limit: formatUsd(budgetLimit) })}</span>}
-            {config.outputGoal === 'prompt' && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => copyText(prompt)}>{t('copyPrompt')}</Button>}
+            {config.outputGoal === 'prompt' && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => copyText(aiEnabled && preview ? preview.result : prompt)}>{t('copyPrompt')}</Button>}
             <span className="ml-auto"><KbdGroup keys={['Ctrl', 'Enter']} size="sm" /></span>
           </div>
           {budgetExceeded && budgetLimit !== null && estimateUsd !== null && (
@@ -776,7 +864,7 @@ export function GenerateTab({
             ))}
           </div>
         )}
-        {pendingAction && <PreGenSummary action={pendingAction} onConfirm={() => pendingAction === 'optimize' ? void doOptimize() : void startGenerate()} onCancel={() => setPendingAction(null)} modelLabel={modelInfo?.display || model} promptPreview={prompt} refCount={refs.length} aspectRatio={config.aspectRatio} warnings={alerts.warnings.length} skipConfirm={skipConfirm} onSkipChange={setSkipConfirm} title={t('confirmGeneration')} optimizeTitle={t('optimizePrompt')} cancel={t('cancel')} generate={t('generate')} optimize={t('optimize')} dontAskAgain={t('dontAskAgain')} refsLabel={t('refsLabel')} warningsLabel={t('warnings')} cleanZones={config.cleanZones} cleanZonesSuppressed={cleanZonesSuppressed} />}
+        {pendingAction && <PreGenSummary action={pendingAction} onConfirm={() => void startGenerate()} onCancel={() => setPendingAction(null)} modelLabel={modelInfo?.display || model} promptPreview={aiEnabled && preview ? preview.result : prompt} refCount={refs.length} aspectRatio={aiEnabled && preview ? preview.effective.aspectRatio : config.aspectRatio} warnings={alerts.warnings.length} skipConfirm={skipConfirm} onSkipChange={setSkipConfirm} title={t('confirmGeneration')} optimizeTitle={t('optimizePrompt')} cancel={t('cancel')} generate={t('generate')} optimize={t('optimize')} dontAskAgain={t('dontAskAgain')} refsLabel={t('refsLabel')} warningsLabel={t('warnings')} cleanZones={config.cleanZones} cleanZonesSuppressed={cleanZonesSuppressed} />}
         {lastResult?.warnings?.map((warning) => <p key={warning} role="status" className="text-xs text-(--ui-yellow)">{warning}</p>)}
         {activeJobId && <JobProgress jobId={activeJobId} modelLabel={modelInfo?.display || model} onJobReplaced={setActiveJobId} onDismiss={() => setActiveJobId(null)} onDone={onJobDone} />}
         {stageIsEmpty && (
@@ -863,7 +951,7 @@ export function GenerateTab({
       </section>
 
       <ModelCatalogModal open={catalogOpen} onClose={() => setCatalogOpen(false)} onOpenSettings={onOpenSettings} providers={providers} selectedModel={model} providerName={provider} onSelect={(selected) => updateConfig({ selectedModel: selected })} onProviderChange={(selectedProvider) => { const chosen = providers.find((item) => item.name === selectedProvider); const first = chosen?.default_model || chosen?.models[0]?.id || ''; updateConfig({ provider: selectedProvider, selectedModel: first }) }} />
-      <DirectionStudio tab={studioTab} onTab={setStudioTab} onClose={() => setStudioTab(null)} config={config} presets={presets} updateConfig={updateConfig} onSubject={chooseSubject} ratios={ratios} allowedRatios={modelInfo?.aspectRatios} />
+      <DirectionStudio tab={studioTab} onTab={setStudioTab} onClose={() => setStudioTab(null)} config={config} presets={presets} updateConfig={partial => updateConfig({ directionVersion: 1, ...partial })} onSubject={chooseSubject} ratios={ratios} allowedRatios={modelInfo?.aspectRatios} />
       <Dialog open={refsOpen} onOpenChange={setRefsOpen}>
         <DialogContent className="imagegen-ui if-refs-dialog">
           <DialogHeader>

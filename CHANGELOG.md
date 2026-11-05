@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.5.0
+
+- Optionally optimize a brief with the Hermes text model. Preview and edit its prompt, keep manual art direction, and use its supported format when generating. Batch lines use their supplied prompts.
+
+- Generate up to 32 independent prompts in the Desktop composer. Review the count and available cost estimate, track each image and retry an individual failed job.
+
+## 1.4.1
+
+- Editing the main description releases a restored manual prompt and blocks submission until the new prompt is ready.
+- Result, gallery, reference and editing views load plugin media through the active profile's authenticated bridge.
+- The latest result stays visible when returning from another tab.
+- Text-safe controls wrap to the panel width. Accent colors can be disabled while keeping the palette for later.
+
 ## 1.4.0
 
 Changes asked in the Hermes plugin catalog review.

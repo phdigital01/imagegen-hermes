@@ -310,6 +310,18 @@ export function fetchLocalImagePath(url: string): Promise<string> {
 }
 
 /** One of our served images as a data URL (plugin URLs need the Desktop's credentials). */
+export function isPluginImageUrl(value: string): boolean {
+  if (value.startsWith('/api/plugins/imagegen/')) return true
+  try {
+    const url = new URL(value)
+    return ['http:', 'https:'].includes(url.protocol) &&
+      ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) &&
+      url.pathname.startsWith('/api/plugins/imagegen/')
+  } catch {
+    return false
+  }
+}
+
 export function fetchImageDataUrl(url: string): Promise<string> {
   return rest<{ dataUrl: string }>(`/media/data-url?url=${encodeURIComponent(url)}`).then((d) => d.dataUrl)
 }

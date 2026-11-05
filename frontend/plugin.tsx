@@ -8,7 +8,7 @@ import './imagegen.css'
 import { Codicon, cn, Dialog, DialogContent, DialogHeader, DialogTitle, host, queryClient, ROUTES_AREA, SIDEBAR_NAV_AREA, PALETTE_AREA, STATUSBAR_AREAS, TRANSCRIPT_DIRECTIVE_AREA, useI18n, useQuery, type HermesPlugin } from '@hermes/plugin-sdk'
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 
-import type { ImageGenConfig } from './types'
+import type { ImageGenConfig, JobResult } from './types'
 import { ID, bindApi, invalidateFeed, invalidateGallery, fetchLibrary, fetchPresets, fetchProviderStatus, fetchProviders, getStored, setStored, promptText } from './api'
 import { emitJobChanged, type JobChange } from './jobEvents'
 import { onOpenRequest, takePendingOpen, type OpenRequest } from './navigation'
@@ -71,6 +71,7 @@ function ImageGenPage() {
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   // Clearing the plugin data remounts the composer, so a deleted result leaves the screen.
+  const [lastResult, setLastResult] = useState<JobResult | null>(null)
   const [dataEpoch, setDataEpoch] = useState(0)
   const [migrationStarted, setMigrationStarted] = useState(false)
   const t = useImageGenI18n(lang)
@@ -190,7 +191,7 @@ function ImageGenPage() {
           </div>
         )}
         <main className={cn('if-main', tab === 'generate' && 'if-main-fill')}>
-          {tab === 'generate' && <GenerateTab key={dataEpoch} config={config} updateConfig={updateConfig} providers={providers} presets={presets} onGoToTab={goToTab} prompt={prompt} setPrompt={setPrompt} promptTouched={promptTouched} setPromptTouched={setPromptTouched} promptManual={promptManual} setPromptManual={setPromptManual} skipConfirm={skipConfirm} setSkipConfirm={setSkipConfirm} activeJobId={activeJobId} setActiveJobId={setActiveJobId} onOpenSettings={() => setSettingsOpen(true)} />}
+          {tab === 'generate' && <GenerateTab lastResult={lastResult} setLastResult={setLastResult} key={dataEpoch} config={config} updateConfig={updateConfig} providers={providers} presets={presets} onGoToTab={goToTab} prompt={prompt} setPrompt={setPrompt} promptTouched={promptTouched} setPromptTouched={setPromptTouched} promptManual={promptManual} setPromptManual={setPromptManual} skipConfirm={skipConfirm} setSkipConfirm={setSkipConfirm} activeJobId={activeJobId} setActiveJobId={setActiveJobId} onOpenSettings={() => setSettingsOpen(true)} />}
           {tab === 'edit' && <EditTab config={config} updateConfig={updateConfig} initialImage={editInitialImage} providers={providers} onOpenSettings={() => setSettingsOpen(true)} />}
           {tab === 'campaign' && <CampaignMatrixTab config={config} updateConfig={updateConfig} presets={presets} onGoToTab={goToTab} />}
           {tab === 'gallery' && <GalleryTab config={config} updateConfig={updateConfig} onGoToTab={goToTab} onUseConfig={applyStoredConfig} library={library} prompt={prompt} />}
@@ -201,7 +202,7 @@ function ImageGenPage() {
             <DialogHeader>
               <DialogTitle className="text-sm">{t('settings')}</DialogTitle>
             </DialogHeader>
-            <PreferencesPanel config={config} updateConfig={updateConfig} langChoice={langChoice} onLang={setLangChoice} onDataCleared={() => setDataEpoch((value) => value + 1)} />
+            <PreferencesPanel config={config} updateConfig={updateConfig} langChoice={langChoice} onLang={setLangChoice} onDataCleared={() => { setLastResult(null); setDataEpoch((value) => value + 1) }} />
           </DialogContent>
         </Dialog>
       </div>

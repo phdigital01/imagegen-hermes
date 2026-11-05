@@ -70,6 +70,10 @@ async def jobs_cancel(job_id: str) -> Dict[str, Any]:
 
 @router.post("/jobs/{job_id}/retry")
 async def jobs_retry(job_id: str) -> Dict[str, Any]:
+    return retry_failed_job(job_id)
+
+
+def retry_failed_job(job_id: str) -> Dict[str, Any]:
     from imagegen_engine import jobs
 
     previous = jobs.manager.get(job_id)

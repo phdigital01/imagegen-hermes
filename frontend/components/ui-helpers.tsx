@@ -9,7 +9,7 @@ import { useEffect, useId, useState, type ComponentType, type ReactNode } from '
 // Resolved by scripts/build_plugin.mjs: thumbnail name -> embedded data URL.
 import BUNDLED_THUMBS from 'imagegen:thumbs'
 
-import { fetchImageDataUrl, revealPath } from '../api'
+import { fetchImageDataUrl, isPluginImageUrl, revealPath } from '../api'
 
 
 export function bundledThumbUrl(file: string): string {
@@ -171,21 +171,21 @@ export interface ImageSource {
   thumb?: string | null
 }
 
-/** One of our served images. The Desktop guards plugin URLs, so a refused address loads through the API. */
+/** Resolve plugin-owned media through the profile-authenticated Desktop bridge. */
 export function ServedImage({ src, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { src: string }) {
-  const [inline, setInline] = useState('')
+  const [resolved, setResolved] = useState<{ source: string; url: string } | null>(null)
+  const guarded = isPluginImageUrl(src)
 
-  useEffect(() => setInline(''), [src])
+  useEffect(() => {
+    if (!guarded) return
+    let active = true
+    fetchImageDataUrl(src)
+      .then((url) => { if (active) setResolved({ source: src, url }) })
+      .catch(() => { if (active) setResolved({ source: src, url: src }) })
+    return () => { active = false }
+  }, [guarded, src])
 
-  return (
-    <img
-      {...props}
-      src={inline || src}
-      onError={() => {
-        if (!inline) void fetchImageDataUrl(src).then(setInline).catch(() => undefined)
-      }}
-    />
-  )
+  return <img {...props} src={guarded ? resolved?.source === src ? resolved.url : undefined : src} />
 }
 
 /** Image preview with an HTTP-first strategy and local-file fallback. */
@@ -217,7 +217,7 @@ export function ImagePreview({
   }
 
   return (
-    <img
+    <ServedImage
       src={src}
       alt={alt || ''}
       className={className}
@@ -264,7 +264,7 @@ export async function revealInFolder(path?: string): Promise<boolean> {
 
 /** Download a URL (handles data: URLs via blob). */
 export async function downloadFromUrl(url: string, filename: string): Promise<void> {
-  if (url.includes('/api/plugins/imagegen/')) url = await fetchImageDataUrl(url).catch(() => url)
+  if (isPluginImageUrl(url)) url = await fetchImageDataUrl(url).catch(() => url)
   const a = document.createElement('a')
   if (url.startsWith('data:')) {
     const res = await fetch(url)

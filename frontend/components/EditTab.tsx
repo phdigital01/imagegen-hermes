@@ -2,7 +2,7 @@
 import { Button, Codicon, Input, Textarea, cn, useQuery } from '@hermes/plugin-sdk'
 import { useEffect, useRef, useState } from 'react'
 import type { EditMode, ImageGenConfig, Provider } from '../types'
-import { ID, fetchFalModel, fetchImageDataUrl, invalidateGallery, rest, queryJobResult, getStored, setStored } from '../api'
+import { ID, fetchFalModel, fetchImageDataUrl, isPluginImageUrl, invalidateGallery, rest, queryJobResult, getStored, setStored } from '../api'
 import { isSubscription, providerReady } from '../access'
 import { useImageGenT } from '../i18n'
 import { fileToDataUrl, newId, Spinner, downloadFromUrl, urlToDataUrl } from './ui-helpers'
@@ -40,9 +40,8 @@ const MODE_ICON: Record<EditMode, string> = {
 
 async function toDataUrl(image: string): Promise<string> {
   if (image.startsWith('data:')) return image
-  const direct = await urlToDataUrl(image).catch(() => image)
-  if (direct.startsWith('data:')) return direct
-  return fetchImageDataUrl(image).catch(() => image)
+  if (isPluginImageUrl(image)) return fetchImageDataUrl(image)
+  return urlToDataUrl(image)
 }
 
 export function EditTab({
@@ -181,7 +180,7 @@ export function EditTab({
       startVersions(dataUrl)
       setResult(null)
       setMask('')
-    })
+    }).catch((cause) => { if (alive) setError(String(cause)) })
     return () => { alive = false }
   }, [initialImage])
 
@@ -577,7 +576,7 @@ export function EditTab({
           const data = await queryJobResult(job.id)
           setResult(data.result)
           invalidateGallery()
-          await addVersion(data.result)
+          try { await addVersion(data.result) } catch (cause) { setError(String(cause)) }
         }
         setJobId(null)
       }} />}

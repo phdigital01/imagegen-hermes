@@ -88,7 +88,7 @@ function choose(config: ImageGenConfig, group: DirectionGroup, values: string[])
   return { globalDirection: { ...config.globalDirection, ...partial } }
 }
 
-function options(presets: Presets | null, group: DirectionGroup): string[] {
+export function directionOptions(presets: Presets | null, group: DirectionGroup): string[] {
   if (group === 'subject') return subjectOptions(presets).map((item) => item.value).filter((value) => value !== FREE_SUBJECT)
   if (!presets) return []
   if (group === 'distance') return presets.distances.map((item) => item.value)
@@ -122,18 +122,19 @@ function RatioShape({ ratio }: { ratio: string }) {
 }
 
 /** The eight groups in the composer, each showing what is chosen now. */
-export function DirectionBoard({ config, onOpen }: { config: ImageGenConfig; onOpen: (tab: DirectionTab) => void }) {
+export function DirectionBoard({ config, manual, autoFormat, onOpen }: { config: ImageGenConfig; manual?: ImageGenConfig; autoFormat?: boolean; onOpen: (tab: DirectionTab) => void }) {
   const t = useImageGenT()
   return (
     <div className="if-board">
       {(Object.keys(TAB_GROUPS) as DirectionTab[]).map((tab) => {
         const { file, text } = tabSummary(config, tab)
+        const suggested = manual && text && (tab === 'format' ? !manual.manualFormat && !autoFormat : text !== tabSummary(manual, tab).text)
         return (
           <button key={tab} type="button" className={cn('if-board-tile', tab === 'format' ? 'if-board-tile-format' : text && 'if-board-tile-set')} onClick={() => onOpen(tab)}>
             {tab === 'format' ? <RatioShape ratio={config.aspectRatio} /> : <SceneImage file={file} />}
             <span className="if-board-caption">
               <strong>{t(TAB_LABEL[tab])}</strong>
-              <small>{text || t('automatic')}</small>
+              <small>{suggested ? t('ai.pick', { value: text }) : tab === 'format' && autoFormat ? t('automatic') : text || t('automatic')}</small>
             </span>
           </button>
         )
@@ -159,7 +160,7 @@ export function DirectionStudio({ tab, onTab, onClose, config, presets, updateCo
   const [focusRatio, setFocusRatio] = useState<string | null>(null)
   const groups = tab ? TAB_GROUPS[tab] : []
   const firstPick = groups.flatMap((group) => chosen(config, group).map((value) => ({ group, value })))[0]
-  const firstOption = groups[0] ? { group: groups[0], value: options(presets, groups[0])[0] || '' } : null
+  const firstOption = groups[0] ? { group: groups[0], value: directionOptions(presets, groups[0])[0] || '' } : null
   const shown = focus && groups.includes(focus.group) ? focus : firstPick || firstOption
   const shownText = shown ? directionText(shown.group, shown.value) : null
   const hasPick = groups.some((group) => chosen(config, group).length > 0)
@@ -182,6 +183,7 @@ export function DirectionStudio({ tab, onTab, onClose, config, presets, updateCo
   }
 
   const clearTab = () => {
+    if (tab === 'format') { updateConfig({ manualFormat: false, aspectRatio: allowedRatios?.[0] || '1:1' }); return }
     if (tab === 'subject') {
       onSubject(FREE_SUBJECT)
       return
@@ -205,7 +207,7 @@ export function DirectionStudio({ tab, onTab, onClose, config, presets, updateCo
             return (
               <button key={item} type="button" role="tab" aria-selected={tab === item} className={cn('if-studio-tab', tab === item && 'if-studio-tab-active')} onClick={() => { setFocus(null); setFocusRatio(null); onTab(item) }}>
                 <span>{t(TAB_LABEL[item])}</span>
-                <small>{summary.text || t('automatic')}</small>
+                <small>{item === 'format' && !config.manualFormat ? t('automatic') : summary.text || t('automatic')}</small>
               </button>
             )
           })}
@@ -224,7 +226,7 @@ export function DirectionStudio({ tab, onTab, onClose, config, presets, updateCo
                       className={cn('if-format-option', active && 'if-studio-option-active')}
                       onMouseEnter={() => setFocusRatio(ratio.value)}
                       onFocus={() => setFocusRatio(ratio.value)}
-                      onClick={() => updateConfig({ aspectRatio: ratio.value })}
+                      onClick={() => updateConfig({ aspectRatio: ratio.value, manualFormat: true })}
                     >
                       <RatioShape ratio={ratio.value} />
                       <span>{ratio.value}</span>
@@ -236,7 +238,7 @@ export function DirectionStudio({ tab, onTab, onClose, config, presets, updateCo
                 <div className="if-studio-group">
                   <div className="if-studio-group-title">{t('platform')}</div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {platforms.map(([key, item]) => <Chip key={key} active={config.aspectRatio === item.aspect_ratio} onClick={() => updateConfig({ aspectRatio: item.aspect_ratio })}>{item.label}</Chip>)}
+                    {platforms.map(([key, item]) => <Chip key={key} active={config.aspectRatio === item.aspect_ratio} onClick={() => updateConfig({ aspectRatio: item.aspect_ratio, manualFormat: true })}>{item.label}</Chip>)}
                   </div>
                 </div>
               )}
@@ -254,7 +256,7 @@ export function DirectionStudio({ tab, onTab, onClose, config, presets, updateCo
                 <div key={group} className="if-studio-group">
                   {groups.length > 1 && <div className="if-studio-group-title">{t(group)}</div>}
                   <div className="if-studio-grid">
-                    {options(presets, group).map((value) => {
+                    {directionOptions(presets, group).map((value) => {
                       const active = chosen(config, group).includes(value)
                       return (
                         <button
@@ -286,7 +288,7 @@ export function DirectionStudio({ tab, onTab, onClose, config, presets, updateCo
           </div>
         )}
         <div className="if-studio-footer">
-          {tab !== 'format' && <Button size="sm" variant="ghost" disabled={!hasPick} onClick={clearTab}>{t('useAutomatic')}</Button>}
+          <Button size="sm" variant="ghost" disabled={tab === 'format' ? !config.manualFormat : !hasPick} onClick={clearTab}>{t('useAutomatic')}</Button>
           <Button size="sm" onClick={onClose}>{t('done')}</Button>
         </div>
         </div>

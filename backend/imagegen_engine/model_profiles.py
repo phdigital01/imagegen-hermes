@@ -283,7 +283,7 @@ def build_intent(config: Mapping[str, Any]) -> Dict[str, Any]:
             }
             for r in refs if isinstance(r, dict)
         ],
-        "colorAccents": list(config.get("colorAccents") or []),
+        "colorAccents": list(config.get("colorAccents") or []) if config.get("colorAccentsEnabled") is not False else [],
         "qualityLevel": config.get("qualityLevel") or config.get("qualityTier") or "padrao",
         "qualityTier": config.get("qualityTier") or config.get("qualityLevel") or "",
         "family": resolve_family(str(config.get("provider") or ""), str(config.get("model") or config.get("selectedModel") or ""))["id"],

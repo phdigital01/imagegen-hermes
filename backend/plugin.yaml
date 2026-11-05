@@ -1,6 +1,6 @@
 name: imagegen
 manifest_version: 1
-version: 1.4.0
+version: 1.5.0
 description: >-
   ImageGen — image generation across every Hermes provider (FAL, OpenAI, Grok,
   Krea, DeepInfra, OpenRouter, Nous Portal, Magnific, Vertex AI) with a professional prompt

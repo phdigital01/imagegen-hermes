@@ -46,7 +46,8 @@ vi.mock('@hermes/plugin-sdk', () => ({
   useQuery: sdk.useQuery
 }))
 
-vi.mock('../api', () => ({
+vi.mock('../api', async (original) => ({
+  ...(await original<typeof import('../api')>()),
   ID: 'imagegen',
   fetchPresets: api.fetchPresets
 }))

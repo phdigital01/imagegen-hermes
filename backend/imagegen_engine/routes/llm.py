@@ -155,7 +155,15 @@ async def prompt_build(body: Any = Body(None)) -> Dict[str, Any]:
 @router.post("/llm/optimize")
 async def llm_optimize(body: Any = Body(None)) -> Dict[str, Any]:
     body = coerce_body(body)
+    if "directionOptions" in body and not (
+        isinstance(body["directionOptions"], dict) and isinstance(body.get("manual", {}), dict)
+        and isinstance(body.get("description"), str) and body["description"].strip()
+    ):
+        raise HTTPException(400, "A description and direction controls are required")
     try:
+        if "directionOptions" in body:
+            return await _to_thread(llm_service.suggest_direction, body.get("description", ""), body.get("prompt", ""),
+                                    body.get("toolTarget", ""), body["directionOptions"], body.get("manual", {}))
         result = await _to_thread(
             llm_service.llm_optimize_prompt,
             prompt=body.get("prompt", ""),

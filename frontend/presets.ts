@@ -6,7 +6,7 @@
  */
 
 import type { DensityMode, ImageGenConfig, Presets, ProviderModel, ReferenceImage } from './types'
-import { rest } from './api'
+import { fetchImageDataUrl, isPluginImageUrl, rest } from './api'
 import { translateActive } from './i18n'
 
 export const SUBJECT_ICONS: Record<string, string> = {
@@ -150,7 +150,7 @@ export async function persistReferenceImage(image: string, label = 'reference.pn
     image.startsWith('/api/') ||
     /https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(image)
   if (!localUrl) return { imageDataUrl: image, localPath: '' }
-  const dataUrl = image.startsWith('data:') ? image : await urlToDataUrl(image)
+  const dataUrl = isPluginImageUrl(image) ? await fetchImageDataUrl(image) : image.startsWith('data:') ? image : await urlToDataUrl(image)
   if (!dataUrl.startsWith('data:')) throw new Error('Could not prepare the reference image')
   const uploaded = await rest<{ url?: string; path?: string }>('/upload', 'POST', { image: dataUrl, name: label })
   return { imageDataUrl: uploaded.url || image, localPath: uploaded.path || '' }
