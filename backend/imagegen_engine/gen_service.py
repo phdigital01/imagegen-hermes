@@ -1319,6 +1319,39 @@ def _generate_vertex(
     )
 
 
+def _generate_local(
+    *,
+    provider: str = "local",
+    model: str,
+    prompt: str,
+    aspect_ratio: str = "1:1",
+    seed: Optional[int] = None,
+    negative_prompt: Optional[str] = None,
+    num_images: int = 1,
+    resolution: str = "1K",
+    reference_images: Optional[List[str]] = None,
+    cancel: Optional[Callable[[], bool]] = None,
+    on_submit: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Dict[str, Any]:
+    """Registry backend for an image server on the user's own machine (see ``_PROVIDER_BACKENDS``).
+
+    The OpenAI images API takes a prompt and a size: references are refused, never dropped.
+    It costs nothing, so the ledger records zero and a monthly limit does not stop it.
+    """
+    from imagegen_engine import local_api
+
+    refs = prepare_reference_sources("local", model, reference_images or [], max_refs=0)
+    images: List[str] = []
+    for _ in range(max(1, min(int(num_images), MAX_GENERATIONS))):
+        _check_cancel(cancel)
+        result = billing.run("local", model, 0.0, lambda: local_api.generate(
+            model, prompt, aspect_ratio=aspect_ratio, resolution=resolution))
+        images.extend(result["images"])
+    return _normalize_generation_result(
+        {"images": images, "provider": "local", "model": model, "cost_estimate": 0.0}, refs=refs,
+    )
+
+
 def _magnific_available() -> bool:
     from imagegen_engine.magnific_api import api_key
 
@@ -1412,4 +1445,5 @@ ProviderBackend = Callable[..., Dict[str, Any]]
 _PROVIDER_BACKENDS: Dict[str, ProviderBackend] = {
     "magnific": _generate_magnific,
     "vertex": _generate_vertex,
+    "local": _generate_local,
 }

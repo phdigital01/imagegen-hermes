@@ -1,10 +1,10 @@
 # Generated from backend/plugin.yaml by npm run build.
 name: imagegen
 manifest_version: 1
-version: 1.6.0
+version: 1.7.0
 description: >-
   ImageGen — image generation across every Hermes provider (FAL, OpenAI, Grok,
-  Krea, DeepInfra, OpenRouter, Nous Portal, Magnific, Vertex AI) with a professional prompt
+  Krea, DeepInfra, OpenRouter, Nous Portal, Magnific, Vertex AI, local servers) with a professional prompt
   builder, reference-driven composition, editing, and a unified gallery.
 author: "Paulo Henrique Tavares"
 kind: standalone
@@ -33,6 +33,16 @@ config_schema:
     env: VERTEX_PROJECT
     label: Vertex AI project ID
     description: Optional. The Google Cloud project for a key bound to a service account. Leave empty for an express-mode key.
+  local_server_url:
+    type: str
+    default: ""
+    label: Local server address
+    description: Optional. Address of an image server on your computer or network that speaks the OpenAI images API (LocalAI, stable-diffusion.cpp, Ollama), for example http://127.0.0.1:1234. Prompts are sent only to this address. No API key and no cost.
+  local_server_key:
+    type: secret
+    env: IMAGEGEN_LOCAL_SERVER_KEY
+    label: Local server token
+    description: Optional. Only for a local server that asks for a token.
   gallery_cap:
     type: int
     default: 200

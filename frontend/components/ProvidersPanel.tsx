@@ -1,16 +1,20 @@
 /**
  * ImageGen — provider configuration panel.
- * Lists provider status (configured/available) and tests the connection. FAL and Magnific
- * keys are Hermes plugin secrets, edited in Settings > Plugins > ImageGen; they never reach this UI.
+ * Lists provider status (configured/available) and tests the connection. Keys and the local
+ * server address are Hermes plugin settings, edited in Settings > Plugins > ImageGen; keys never reach this UI.
  */
 
 import { Badge, Button, Codicon, host, Input, pluginSettingsHref, useMutation, useQuery } from '@hermes/plugin-sdk'
 import { useEffect, useState } from 'react'
 
 import { fetchBudget, queryClient, rest, saveBudget } from '../api'
-import { isSubscription, providerUnlocksKey } from '../access'
+import { accessLabelKey, isLocal, providerLabel, providerUnlocksKey } from '../access'
 import { useImageGenT } from '../i18n'
 import { formatUsd, Spinner } from './ui-helpers'
+
+// ImageGen registers no Desktop settings page, so its keys and address are on the page Hermes
+// builds from the plugin's config_schema, which the `agent` parameter addresses.
+const SETTINGS_HREF = `${pluginSettingsHref()}&agent=imagegen`
 
 interface ProviderStatus {
   name: string
@@ -21,7 +25,7 @@ interface ProviderStatus {
 
 export function ProvidersPanel() {
   const t = useImageGenT()
-  const [testResult, setTestResult] = useState<{ ok: boolean } | null>(null)
+  const [testResult, setTestResult] = useState<{ provider: string; ok: boolean; models?: number; detail?: string } | null>(null)
   const [budgetInput, setBudgetInput] = useState('')
   const [budgetError, setBudgetError] = useState('')
 
@@ -72,10 +76,12 @@ export function ProvidersPanel() {
 
   const testConnection = async (provider: string = 'fal') => {
     try {
-      const r = await rest<{ ok: boolean }>('/providers/test', 'POST', { provider })
-      setTestResult({ ok: r.ok })
+      const r = await rest<{ ok: boolean; models?: number; detail?: string }>('/providers/test', 'POST', { provider })
+      setTestResult({ provider, ok: r.ok, models: r.models, detail: r.detail })
+      // The local server may have come up or gone down since the list was read.
+      if (isLocal(provider)) queryClient.invalidateQueries({ queryKey: ['imagegen', 'providers-status'] })
     } catch {
-      setTestResult({ ok: false })
+      setTestResult({ provider, ok: false })
     }
   }
 
@@ -87,18 +93,39 @@ export function ProvidersPanel() {
       {[...providers].sort((a, b) => Number(b.configured) - Number(a.configured)).map((p) => (
         <div key={p.name} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-(--ui-stroke-secondary) p-2.5">
           <div className="min-w-0">
-            <div className="truncate text-xs font-medium">{p.display_name || p.name}</div>
+            <div className="truncate text-xs font-medium">{providerLabel(t, p)}</div>
             <div className="mt-1 flex flex-wrap gap-1.5">
-              <Badge variant={p.configured ? 'outline' : 'muted'} className={p.configured ? 'text-emerald-500' : ''}>
-                {p.configured ? t('providerConfigured') : t('providerNotConfigured')}
-              </Badge>
-              <Badge variant="muted">{t(isSubscription(p.name) ? 'accessSubscription' : 'accessApiKey')}</Badge>
+              {isLocal(p.name) && p.configured && !p.available
+                ? <Badge variant="outline" className="text-amber-600 dark:text-amber-400">{t('localNotAnswering')}</Badge>
+                : <Badge variant={p.configured ? 'outline' : 'muted'} className={p.configured ? 'text-emerald-500' : ''}>
+                    {p.configured ? t('providerConfigured') : t('providerNotConfigured')}
+                  </Badge>}
+              <Badge variant="muted">{t(accessLabelKey(p.name))}</Badge>
             </div>
             <p className="mt-1 text-[11px] text-(--ui-text-tertiary)">{t(providerUnlocksKey(p.name))}</p>
+            {testResult?.provider === p.name && (
+              <div aria-live="polite" className={`mt-1 text-[11px] ${testResult.ok ? 'text-emerald-500' : 'text-red-500'}`}>
+                {testResult.ok
+                  ? testResult.models !== undefined ? t('localTestOk', { n: String(testResult.models) }) : t('testOk')
+                  : testResult.detail ? `${t('testFail')}: ${testResult.detail}` : t('testFail')}
+              </div>
+            )}
           </div>
+          {isLocal(p.name) && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={() => host.navigate(SETTINGS_HREF)}>
+                <Codicon name="server" style={{ fontSize: 12 }} />
+                {t('localAddressSettings')}
+              </Button>
+              {p.configured && <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={() => void testConnection('local')}>
+                <Codicon name="plug" style={{ fontSize: 12 }} />
+                {t('testConnection')}
+              </Button>}
+            </div>
+          )}
           {(p.name === 'fal' || p.name === 'magnific') && (
             <div className="flex flex-wrap items-center gap-1.5">
-              <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={() => host.navigate(pluginSettingsHref('imagegen'))}>
+              <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={() => host.navigate(SETTINGS_HREF)}>
                 <Codicon name="key" style={{ fontSize: 12 }} />
                 {t('keySettings')}
               </Button>
@@ -118,7 +145,7 @@ export function ProvidersPanel() {
           )}
         </div>
       ))}
-      {fal && !fal.configured && !(nous && nous.configured) && !providers.some((p) => p.name === 'magnific' && p.configured) && (
+      {fal && !fal.configured && !(nous && nous.configured) && !providers.some((p) => (p.name === 'magnific' || isLocal(p.name)) && p.configured) && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 p-2.5 text-xs text-amber-700 dark:text-amber-400">
           {t('configureFalHint')}
         </div>
@@ -156,11 +183,6 @@ export function ProvidersPanel() {
         </div>
         {budgetError && <div className="mt-1 text-[10.5px] text-red-500">{budgetError}</div>}
       </div>
-      {testResult && (
-        <div className={`text-[11px] ${testResult.ok ? 'text-emerald-500' : 'text-red-500'}`}>
-          {testResult.ok ? t('testOk') : t('testFail')}
-        </div>
-      )}
     </div>
   )
 }

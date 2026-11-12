@@ -85,6 +85,61 @@ Without `HERMES_E2E_HERMES_BIN` the desktop app may fall into the first-run
 onboarding screen ("Set up Hermes Desktop") and the test times out, because
 the Electron main process cannot resolve a backend to launch.
 
+This smoke spec and `e2e/host-fixtures.ts` date from the bundled release. The
+spec looks for a Providers tab, which is now inside the ImageGen settings, and
+the fixture copy is older than the one in a current Hermes checkout. Do not
+sync them into Hermes 0.23 or later; use the screen check below.
+
+## Screen check in a sandboxed Desktop
+
+`e2e/local-server-check.spec.ts` opens a development Hermes Desktop on a
+throwaway Hermes home, installs the plugin tree of this repository there, and
+walks the Local server screens against a stand-in image server: provider list,
+settings link, address, connection test, model picker, one generation, the
+result actions that need FAL or Magnific, one generation the server refuses,
+the gallery, a reference, the four languages and the server turned off. It also
+asks for one image from a chat session, through the agent's `image_generate`
+tool, and opens the ImageGen card of that image in a reply. It writes one
+screenshot per state and `check.log`. It never touches the real Hermes home or
+the running gateway. The stand-in server is not a model: the check proves the
+screens and the request, not the image.
+
+The spec runs from the Hermes checkout, which already has Playwright and
+Electron. Copy it in, run it, and remove it, so the checkout stays clean:
+
+```bash
+cp <repo>/e2e/local-server-check.spec.ts $HERMES_AGENT/apps/desktop/e2e/imagegen-local-server-check.spec.ts
+cd $HERMES_AGENT/apps/desktop
+HERMES_E2E_IMAGEGEN_OUT=<absolute scratch folder> HERMES_E2E_IMAGEGEN_REPO=<repo> \
+  npx playwright test e2e/imagegen-local-server-check.spec.ts --reporter=list --trace off \
+  --output <absolute scratch folder>/pw-output
+rm $HERMES_AGENT/apps/desktop/e2e/imagegen-local-server-check.spec.ts
+```
+
+It takes about four minutes. Notes:
+
+- With `HERMES_E2E_IMAGEGEN_SERVER=http://127.0.0.1:1234` the same walk passes
+  through a real image server at that address, so the two images are the
+  model's. Start the server first and ask it for one image, because the first
+  one after a start can take minutes. The waits grow to fit a slow model.
+- The chat steps use the mock model of the Hermes suite: a message
+  `E2E_CALL(tool)[arguments]` makes it call that tool. A session that defers
+  its tools has no `image_generate` of its own, so the spec then calls it
+  through the `tool_call` bridge, as a model does.
+- When a state fails, the sandbox logs are copied to `sandbox-logs` in the
+  scratch folder.
+- It installs `HEAD`. For work that is not committed yet, build first and pass
+  `HERMES_E2E_IMAGEGEN_REF=$(git -C <repo> stash create)`.
+- Paths must be absolute, and `--output` must point outside the checkout: the
+  suite moves the temporary folder for each run, and the default output folders
+  are not ignored by the checkout's Git.
+- The spec starts the sandbox gateway itself. From a tool shell on Windows the
+  Desktop cannot start it (`windows_breakaway_unavailable`).
+- The Desktop half of a plugin under `<home>/plugins` stays off until the
+  person turns it on in Capabilities → Plugins. The spec stores that choice in
+  `localStorage` (`hermes.desktop.pluginDecisions.v2`).
+- A new screen state gets a `step` in the spec with its own screenshot.
+
 ## Backend Change
 
 1. Edit files in `<repo>\backend`.

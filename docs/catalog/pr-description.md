@@ -1,87 +1,57 @@
-# Add ImageGen to the plugin catalog
+# plugin-catalog: bump imagegen to 1.7.0
 
-Draft body for the catalog PR against `NousResearch/hermes-agent`. Update the
-SHA, the validator output and the screenshots on the day it is opened.
+Draft body for the catalog update PR against `NousResearch/hermes-agent`. ImageGen was added in
+NousResearch/hermes-agent#147403. Fill in the new SHA and the check results on the day it is opened.
 
 ---
 
-## What it is
+`sha` `f00dbf8` → `<new sha>`, `version` `1.6.0` → `1.7.0`, and `image:` and `screenshots:` follow
+the pin. The description names the new provider and its disclosure. Submitted by the plugin's owner.
 
-ImageGen is an image studio for Hermes Desktop. One screen reaches every image
-provider the user's profile can use (FAL, Nous Portal, Magnific, Vertex AI and the Hermes
-`image_gen` providers), with a guided prompt builder, reference-driven
-composition, editing, campaign grids, a gallery with reusable recipes and a
-local monthly budget. The UI follows the Hermes app language (en, pt, es, zh).
+## New in 1.7.0
 
-- Repo: https://github.com/phdigital01/imagegen-hermes
-- Pinned SHA: `747bc6f3e6d3b6840e13c0752088119a5447a2f5`
-- Version: 1.6.0, `requires_hermes: ">=0.22.5"`
-- Surfaces: Desktop UI (`desktop/plugin.js`, SDK only) and a dashboard REST
-  router (`dashboard/plugin_api.py`). One `image_gen` provider (`ctx.register_image_gen_provider`),
-  one transcript directive (`imagegen-image`) and an on-demand workspace pane.
-  No tools, hooks, middleware or commands.
+- **Local server provider.** With an address set in Settings → Plugins → ImageGen, the models of
+  an image server on the user's own machine or network appear in the picker, with no API key and
+  no cost. It speaks the OpenAI images API (`GET /v1/models`, `POST /v1/images/generations`), so
+  it works with stable-diffusion.cpp `sd-server`, LocalAI and Ollama. Text to image only:
+  references and edits are refused with a message. It answers public issue
+  phdigital01/imagegen-hermes#1.
+- **Budget.** An operation that costs nothing is no longer blocked by a monthly limit that was
+  already reached.
+- **Fixes.** "Set key in Settings" opens the ImageGen settings page. Variations on an image from a
+  provider other than FAL or Magnific run on the model the menu names. After a failed generation
+  the Generate button is ready again, and the retry button says whether a retry is paid. Result
+  actions that need a provider the profile lacks show a lock before the click. The chat card no
+  longer has empty space.
 
-## How it uses Hermes
+The full list is in `CHANGELOG.md` at the pin.
 
-- **Credentials:** `FAL_KEY`, `MAGNIFIC_API_KEY`, `VERTEX_API_KEY` and `VERTEX_PROJECT` are optional
-  `config_schema` secrets, edited in Settings → Plugins → ImageGen and read with
-  `agent.secret_scope.get_secret`. The plugin never opens or writes `.env`,
-  `auth.json` or other credential files. A linked ChatGPT subscription is reached only
-  through the Hermes image provider, so the plugin never holds its token.
-  The command line is a Hermes subcommand (`ctx.register_cli_command("imagegen", ...)`), so
-  `hermes -p <profile> imagegen ...` lets Hermes load the profile and its secrets.
-- **Settings:** the gallery and history limits are `config_schema` integers read with
-  `ctx.get_config`.
-- **LLM:** prompt writing and reference reading use `ctx.llm.complete` on two
-  auxiliary slots the plugin registers, `imagegen_prompt` and
-  `imagegen_vision` (inherits `vision`).
-- **Data:** everything it stores lives in `plugin-data/imagegen/`.
+## Disclosure change
 
-## Disclosures
+- **Network.** One new destination, and only when the user sets it: the local server address.
+  Prompts for its models go straight to that address, with no proxy. ImageGen asks it for its
+  model list at most once a minute, and the provider list never waits on it. Nothing is sent
+  there while the address is empty, which is the default.
+- **Settings.** Two new `config_schema` entries: `local_server_url` (`str`, read with
+  `ctx.get_config`) and `local_server_key` (`secret`, env `IMAGEGEN_LOCAL_SERVER_KEY`, read with
+  `agent.secret_scope.get_secret`), the second only for a server that asks for a bearer token.
+- **Cost.** Local generations are recorded at zero cost.
 
-- Paid requests: each generation, edit or upscale is billed by the provider
-  that runs it. On the ImageGen screen every paid request starts from a user
-  click. The agent can spend only after the user picks ImageGen under Tools →
-  Image Generation (its `image_generate` calls then run through ImageGen and
-  its budget) or registers the optional MCP server below. A local monthly budget reserves the estimated cost first and
-  blocks unknown prices while a limit is set.
-- Network: prompts and reference images go to the chosen provider:
-  `queue.fal.run` and `fal.run` (including reference uploads),
-  `api.magnific.com`, `aiplatform.googleapis.com` (Vertex AI), or the Hermes image
-  provider's endpoint (Hermes's own gateway for a Nous Portal subscription).
-- Optional MCP server: `backend/mcp_server.py` exposes generation to the agent
-  only if the user adds it to `mcp_servers` by hand.
-- Command line: `hermes imagegen` runs one generation, or a parallel
-  batch with `--batch`, only when someone runs it; each job is billed like a click on
-  Generate. The README warns about provider and subscription limits on parallel use.
-- Private host imports (rule 9 warning): to list and call the Hermes image
-  providers and read the FAL catalog, the plugin imports
-  `agent.image_gen_registry`, `tools.image_generation_tool` (`FAL_MODELS`,
-  `_build_fal_payload`, `_build_fal_edit_payload`),
-  and `hermes_cli.plugins.discover_plugins`. It never registers providers itself: it runs Hermes's
-  plugin discovery and only reads the registry. A FAL request without
-  `FAL_KEY` goes through `get_provider("fal").generate`.
+The catalog description and the README at the pin say the same (rule 13).
 
-## Validation
+## What did not change
 
-- `hermes plugins validate <clean clone> --json`: `ok: true`; all checks pass
-  (manifest, `requires_hermes`, config schema, loadable entries, capability
-  probe, security scan, no core override, desktop surface). One warning: the
-  private imports above.
-- Installed from this public repository at the pinned commit into a throwaway
-  `HERMES_HOME`: `hermes plugins install phdigital01/imagegen-hermes --enable`
-  succeeds and `hermes plugins list` shows it enabled at 1.6.0.
-- Installed from Git into the four profiles of a real Hermes Desktop 0.22.5,
-  including secondary profiles served through `http://plugin-host`. In the
-  Desktop UI, GPT Image (ChatGPT subscription) and Grok generated real images,
-  an edit kept 84% of the photo identical, and the gallery, campaign and
-  settings screens load. The screenshots below come from that run.
-- Backend suite on Windows 11: 207 passed, 1 skipped. Frontend: 34 tests passed.
+- Declared capabilities: no tools, hooks or middleware. One `image_gen` provider, one transcript
+  directive, one on-demand pane and the `hermes imagegen` subcommand, as in 1.6.0.
+- Python dependencies: none added. The local provider uses the standard library.
+- Private host imports (rule 9 warning): the same modules as 1.6.0, none added.
+- `requires_hermes` stays `">=0.22.5"`.
 
-## Screenshots
+## Verified
 
-![Banner](https://raw.githubusercontent.com/phdigital01/imagegen-hermes/747bc6f3e6d3b6840e13c0752088119a5447a2f5/docs/catalog/banner.png)
-
-![Generate](https://raw.githubusercontent.com/phdigital01/imagegen-hermes/747bc6f3e6d3b6840e13c0752088119a5447a2f5/docs/catalog/screenshots/generate.png)
-![Edit](https://raw.githubusercontent.com/phdigital01/imagegen-hermes/747bc6f3e6d3b6840e13c0752088119a5447a2f5/docs/catalog/edit-demo.gif)
-![Gallery](https://raw.githubusercontent.com/phdigital01/imagegen-hermes/747bc6f3e6d3b6840e13c0752088119a5447a2f5/docs/catalog/screenshots/gallery-detail.png)
+- `scripts/validate_plugin_catalog.py plugin-catalog/imagegen.yaml`: <result>.
+- `hermes plugins validate` on the plugin tree at the pin: <result>.
+- Installed from this public repository at the pin into a throwaway `HERMES_HOME`: <result>.
+- Local server: <what ran against a real server and against the stand-in>.
+- Backend and frontend suites on Windows 11: <counts>.
+- The banner and screenshot URLs at the new pin return 200.

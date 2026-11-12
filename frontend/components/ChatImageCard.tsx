@@ -39,7 +39,8 @@ export function ChatImageCard({ id, streaming }: { id?: string; streaming: boole
   if (!data) return null
 
   return (
-    <div className="imagegen-ui my-2 flex max-w-md items-center gap-3 rounded-md border border-border bg-(--ui-bg-elevated,transparent) p-2">
+    // `not-prose`: the chat's typography gives every image a 2em margin, which doubled the card's height.
+    <div className="imagegen-ui not-prose my-2 flex max-w-md items-center gap-3 rounded-md border border-border bg-(--ui-bg-elevated,transparent) p-2">
       <ImagePreview item={{ url: data.url, localPath: data.localPath }} className="size-10 shrink-0 rounded object-cover" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1 text-xs font-medium">

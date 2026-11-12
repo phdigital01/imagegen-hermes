@@ -15,6 +15,7 @@ FAL_ENV = ("FAL_KEY", "FAL_API_KEY")
 MAGNIFIC_ENV = ("MAGNIFIC_API_KEY",)
 VERTEX_ENV = ("VERTEX_API_KEY",)
 VERTEX_PROJECT_ENV = ("VERTEX_PROJECT",)
+LOCAL_ENV = ("IMAGEGEN_LOCAL_SERVER_KEY",)
 
 
 def _get_secret(name: str) -> Optional[str]:
@@ -52,3 +53,8 @@ def vertex_key() -> str:
 
 def vertex_project() -> str:
     return read(VERTEX_PROJECT_ENV)
+
+
+def local_key() -> str:
+    """Token for a local image server that asks for one; most do not."""
+    return read(LOCAL_ENV)

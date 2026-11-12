@@ -38,6 +38,7 @@ providers_catalog._list_providers()  ->  agent.image_gen_registry   (filled by H
         |                            + FAL_MODELS (host)        plugin discovery: openai,
         v                            + Magnific (API)           xai, krea, openrouter,
   one entry per provider:            + Vertex AI (API)          nous, fal, ...)
+                                     + local server (/v1/models)
   { name, display_name,
     available, models[] }
 ```
@@ -56,6 +57,7 @@ POST /generate | /jobs/submit --> gen_service.generate_text_to_image(provider, m
                                     (includes "nous": OpenRouter-backed, Portal auth)
     provider == "magnific"      --> direct Magnific API (magnific_catalog.py)
     provider == "vertex"        --> direct Vertex AI API (vertex_api.py)
+    provider == "local"         --> the server at the address in the settings (local_api.py)
 ```
 
 The plugin never loads or registers Hermes's image providers itself:
@@ -111,6 +113,16 @@ in the installed Hermes checkout — not from this repo. Options:
    own transport (see the registry docstring for the required signature).
 3. If the provider needs a stored key, extend `/providers/configure` in
    `backend/imagegen_engine/routes/system.py` (currently `fal` and `magnific` persist keys).
+
+### Case D: model on a local server
+
+Nothing to add. The `local` provider lists what the server at the
+**Local server address** setting reports in `GET /v1/models` and generates
+through `POST /v1/images/generations` (`backend/imagegen_engine/local_api.py`).
+The list is read in a background thread and cached, so `GET /providers` never
+waits on that server. A local API with another contract (AUTOMATIC1111,
+ComfyUI) gets its own transport module and `_PROVIDER_BACKENDS` entry; do not
+widen `local_api.py`.
 
 ## What you must NOT change
 

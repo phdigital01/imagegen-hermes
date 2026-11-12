@@ -434,7 +434,8 @@ def reserve_spend(provider: str, model: str, estimate: Optional[float], num_imag
         spent = spend_this_month()
         if limit is not None and estimate is None:
             raise ImageGenError("budget.unknown_cost", "This operation has no reliable USD estimate; remove the local limit or choose a priced model", provider=provider, model=model)
-        if limit is not None and spent + (estimate or 0) > limit:
+        # A free operation (a local server) never moves the total, so the limit does not stop it.
+        if limit is not None and estimate and spent + estimate > limit:
             raise ImageGenError(BUDGET_EXCEEDED, "Monthly estimated budget exceeded", spent=spent, limit=limit, estimate=estimate)
         reservation_id = uuid.uuid4().hex
         ledger = _read_json(spend_file(), [])

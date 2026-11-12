@@ -71,7 +71,7 @@ def test_registry_backends_share_the_common_signature() -> None:
 
 
 def test_registry_contains_exactly_the_direct_providers() -> None:
-    assert set(gen_service._PROVIDER_BACKENDS) == {"magnific", "vertex"}
+    assert set(gen_service._PROVIDER_BACKENDS) == {"magnific", "vertex", "local"}
 
 
 # ---------------------------------------------------------------------------

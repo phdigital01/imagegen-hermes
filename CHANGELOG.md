@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.7.0
+
+- Providers: **Local server**. Set the address of an image server on your own machine in
+  **Settings → Plugins → ImageGen** and its models appear in the picker, with no API key and no
+  cost. It works with servers that answer the OpenAI images API (stable-diffusion.cpp `sd-server`,
+  LocalAI, Ollama) and generates from text only: references and edits are refused with a message.
+  Sizes are 512px, 768px, 1K and 2K in multiples of 64. The provider list never waits on that
+  server, and a server that stops answering leaves the picker until it answers again.
+- Budget: an operation that costs nothing is no longer blocked by a monthly limit that was already
+  reached.
+- Settings: **Set key in Settings** now opens the ImageGen settings page. Before, it stopped at the
+  plugin list with "That plugin has no settings page". The result of **Test connection** shows in
+  the row of the provider you tested instead of at the end of the list.
+- Generate: **Variations** on an image made by a provider other than FAL or Magnific now runs on
+  FAL's FLUX.2 Pro Edit, the model its menu names. Before, it sent that provider's model to FAL,
+  which refused it.
+- Generate: on a result, **Edit**, **Variations**, **Upscale** and **Remove background** show a
+  lock and name the provider they need when it is not connected. **Variations** then answers with
+  the access notice and its link to Settings, instead of starting a job that fails.
+- Jobs: after a generation fails, the Generate button is ready again while the failure stays on
+  screen. Before, it read "Generating…" until you closed the failure. The retry button says
+  **Try again (paid)** when no image was delivered, and **Retry** when the local server failed,
+  which costs nothing; "Generate remaining images" appears only when some images arrived. The job
+  in the failure panel is no longer listed a second time in the job queue above it.
+- Chat: the ImageGen card under an image no longer has empty space above and below its content.
+
 ## 1.6.0
 
 - Command line: `hermes -p <profile> imagegen ...` is now a Hermes subcommand, registered with

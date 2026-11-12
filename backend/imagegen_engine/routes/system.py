@@ -55,6 +55,8 @@ async def providers_status() -> Dict[str, Any]:
             configured = bool(gen_service._fal_key()) or bool(p.get("available", False))
         elif name == "magnific":
             configured = bool(gen_service._magnific_available())
+        elif name == "local":
+            configured = bool(p.get("configured", False))
         else:
             configured = bool(p.get("available", False))
         out.append({
@@ -79,6 +81,16 @@ async def providers_test(body: Any = Body(None)) -> Dict[str, Any]:
         if registered and registered.get("available"):
             return {"ok": True, "provider": provider, "via": "hermes"}
         return {"ok": False, "error": "not_configured"}
+    if provider == "local":
+        from imagegen_engine import local_api
+
+        if not local_api.available():
+            return {"ok": False, "error": "not_configured"}
+        try:
+            found = await _to_thread(local_api.check_connection)
+        except ImageGenError as exc:
+            return {"ok": False, "error": "unreachable", "detail": str(exc.params.get("detail") or exc)}
+        return {"ok": True, "provider": provider, "models": len(found)}
     raise HTTPException(status_code=400, detail="unsupported provider")
 
 

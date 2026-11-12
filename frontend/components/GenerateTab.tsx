@@ -33,7 +33,7 @@ import {
 } from '../api'
 import { imageRef, writeToChat } from '../chat'
 import { jobPollMs } from '../jobEvents'
-import { isSubscription, providerReady } from '../access'
+import { editEngines, isLocal, isSubscription, providerReady } from '../access'
 import { useImageGenT } from '../i18n'
 import {
   DEFAULT_CONFIG,
@@ -162,8 +162,14 @@ export function GenerateTab({
   const [optimizing, setOptimizing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
+  // A job that failed, was cancelled or was interrupted keeps its panel on screen but no longer holds the screen.
+  const [endedJobId, setEndedJobId] = useState<string | null>(null)
+  const jobRunning = !!activeJobId && activeJobId !== endedJobId
   const upscaleProvider = !providerReady(providers, 'fal') && providerReady(providers, 'magnific') ? 'magnific' : 'fal'
   const [accessNotice, setAccessNotice] = useState('')
+  const accessNoticeRef = useRef<HTMLDivElement>(null)
+  // The notice sits above the result, which can be a screen below the action that raised it.
+  useEffect(() => { if (accessNotice) accessNoticeRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }) }, [accessNotice])
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   useEffect(() => { setPendingAction(null) }, [config])
   const [seed, setSeed] = useState('')
@@ -195,7 +201,12 @@ export function GenerateTab({
   const modelInfo = useMemo(() => listedModel && falModelQuery.data
     ? { ...listedModel, ...falModelQuery.data, capabilities: { ...listedModel.capabilities, ...falModelQuery.data.capabilities } }
     : listedModel, [listedModel, falModelQuery.data])
-  const variationModel = provider === 'magnific' && !modelInfo?.capabilities?.edit ? 'flux-2-pro' : model
+  // Variations run on Magnific or FAL. FAL does not know a model of another provider, so a result
+  // of one of those varies on FAL's edit model, the one the variation menu names.
+  const variationProvider = provider === 'magnific' ? 'magnific' : 'fal'
+  const variationModel = provider === 'magnific'
+    ? (modelInfo?.capabilities?.edit ? model : 'flux-2-pro')
+    : provider === 'fal' ? model : 'fal-ai/flux-2-pro/edit'
   const refs = config.referencesV4 || []
   const subjectList = subjectOptions(presets)
   const presetRatios = aspectOptions(presets)
@@ -227,7 +238,7 @@ export function GenerateTab({
   const jobsQuery = useQuery({
     queryKey: [ID, 'jobs'],
     queryFn: fetchJobs,
-    refetchInterval: activeJobId ? jobPollMs(2000, 10_000) : jobPollMs(8000, 60_000)
+    refetchInterval: jobRunning ? jobPollMs(2000, 10_000) : jobPollMs(8000, 60_000)
   })
   const objects = objectsQuery.data || []
   // References that came from one library entry show as one product card.
@@ -387,7 +398,7 @@ export function GenerateTab({
 
   const startGenerate = async (promptOverride?: string, refsOverride?: ReferenceImage[]) => {
     let activePrompt = (promptOverride ?? prompt).trim()
-    if ((!promptOverride && !hasPrompt) || !activePrompt || activeJobId || submittingRef.current) return
+    if ((!promptOverride && !hasPrompt) || !activePrompt || jobRunning || submittingRef.current) return
     submittingRef.current = true
     setSubmitting(true)
     setPendingAction(null)
@@ -479,7 +490,7 @@ export function GenerateTab({
   }
 
   const runImageJob = async (path: string, body: Record<string, unknown>) => {
-    if (activeJobId || submittingRef.current) return
+    if (jobRunning || submittingRef.current) return
     submittingRef.current = true
     setSubmitting(true)
     try {
@@ -504,7 +515,7 @@ export function GenerateTab({
     return runImageJob('/vary', {
       image,
       prompt: intentPrompt[intent],
-      provider: provider === 'magnific' ? 'magnific' : 'fal',
+      provider: variationProvider,
       model: variationModel,
       aspectRatio: config.aspectRatio,
       resolution: variationModel === model ? config.resolution : '1K',
@@ -569,13 +580,19 @@ export function GenerateTab({
     setRefinedPrompt('')
     void startGenerate(next)
   }
-  const needsAccess = (name: string) => {
-    if (providerReady(providers, name)) return false
-    setAccessNotice(name === 'magnific' ? 'Magnific' : 'FAL')
-    return true
+  // What each result action still lacks, as the provider names to show; empty when it can run.
+  const actionNeeds = {
+    edit: providerReady(providers, 'fal') || providerReady(providers, 'magnific') || editEngines(providers).length ? '' : 'FAL / Magnific',
+    vary: providerReady(providers, variationProvider) ? '' : variationProvider === 'magnific' ? 'Magnific' : 'FAL',
+    upscale: providerReady(providers, upscaleProvider) ? '' : 'FAL / Magnific',
+    removeBg: providerReady(providers, 'fal') ? '' : 'FAL'
   }
-  const doUpscale = (image: string) => needsAccess(upscaleProvider) ? undefined : runImageJob('/upscale', { image, provider: upscaleProvider, creativity: 0.35, scale: 2, mode: 'classic', prompt })
-  const doBgRemove = (image: string) => needsAccess('fal') ? undefined : runImageJob('/bg-remove', { image }).catch((error) => host.notifyError(error, t('removeBg')))
+  const lacksAccess = (needs: string) => {
+    if (needs) setAccessNotice(needs)
+    return !!needs
+  }
+  const doUpscale = (image: string) => lacksAccess(actionNeeds.upscale) ? undefined : runImageJob('/upscale', { image, provider: upscaleProvider, creativity: 0.35, scale: 2, mode: 'classic', prompt })
+  const doBgRemove = (image: string) => lacksAccess(actionNeeds.removeBg) ? undefined : runImageJob('/bg-remove', { image }).catch((error) => host.notifyError(error, t('removeBg')))
 
   const useAsRef = async (image: string) => {
     try {
@@ -610,14 +627,14 @@ export function GenerateTab({
   const styleLabel = config.globalDirection.style
   // A disabled Generate button must say why in visible text, not color alone;
   // the reason is associated to the button via aria-describedby.
-  const generateDisabled = optimizing || (aiEnabled && preview !== null && !preview.result.trim()) || !providerReady(providers, provider) || alerts.blocking.length > 0 || !hasPrompt || submitting || !!activeJobId || refMismatch || budgetExceeded
+  const generateDisabled = optimizing || (aiEnabled && preview !== null && !preview.result.trim()) || !providerReady(providers, provider) || alerts.blocking.length > 0 || !hasPrompt || submitting || jobRunning || refMismatch || budgetExceeded
   const generateDisabledReason = optimizing ? t('analyzing') : !hasPrompt
     ? config.description.trim() ? t('buildingPrompt') : t('describeToGenerate')
     : refMismatch
       ? t('refMismatch', { count: String(refs.length), max: String(maxRefs) })
       : budgetExceeded && budgetLimit !== null && estimateUsd !== null
         ? t('budget.exceeded', { spent: formatUsd(spentThisMonth), limit: formatUsd(budgetLimit), estimate: formatUsd(estimateUsd) })
-        : activeJobId
+        : jobRunning
           ? t('generating')
           : !providerReady(providers, provider) ? t('batch.access') : alerts.blocking[0]?.message || ''
 
@@ -680,7 +697,8 @@ export function GenerateTab({
     )
   }
 
-  const openJobs = (jobsQuery.data || []).filter((job) => ['running', 'queued', 'failed', 'interrupted'].includes(job.status)).slice(0, 4)
+  // The job in the progress panel is not listed a second time above it.
+  const openJobs = (jobsQuery.data || []).filter((job) => job.id !== activeJobId && ['running', 'queued', 'failed', 'interrupted'].includes(job.status)).slice(0, 4)
   const refsHash = refs.map((r) => `${r.id}:${r.localPath || r.url || ''}`).join('|')
   const visionStale = config.compositionIntent?.status === 'confirmed' && (config.compositionIntent.snapshotDescription !== (config.description || '') || config.compositionIntent.snapshotRefsHash !== refsHash)
   const currentProviderInfo = providers.find((item) => item.name === provider)
@@ -700,7 +718,7 @@ export function GenerateTab({
   const sentText = (aiEnabled && preview ? preview.result : prompt).trim()
   const sentLine = !config.description.trim() && !promptManual ? t('autoPromptHint') : (sentText.split('\n')[0] || '').slice(0, 120) || t('autoPromptHint')
   const shownRatio = aiEnabled && preview ? preview.effective.aspectRatio : config.aspectRatio
-  const costText = isSubscription(provider) ? t('includedInPlan') : estimateUsd !== null ? `~${formatUsd(estimateUsd)}` : ''
+  const costText = isSubscription(provider) ? t('includedInPlan') : isLocal(provider) ? t('costLocal') : estimateUsd !== null ? `~${formatUsd(estimateUsd)}` : ''
   const openCatalog = onOpenCatalog || (() => setCatalogOpen(true))
   const readyProviders = providers.filter((item) => providerReady(providers, item.name))
   const missingProviders = providers.filter((item) => !providerReady(providers, item.name))
@@ -736,7 +754,7 @@ export function GenerateTab({
     <div
       className="if-generate"
       onKeyDown={(event) => {
-        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && !activeJobId && mode === 'one') {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && !jobRunning && mode === 'one') {
           event.preventDefault()
           requestGenerate()
         }
@@ -917,7 +935,7 @@ export function GenerateTab({
             <span><strong>{mode === 'many' ? t('mode.manySummary') : t('imageCount', { n: String(numImages) })}</strong>{[shownRatio, costText].filter(Boolean).map((part) => ` · ${part}`).join('')}</span>
             <button type="button" className="if-link" onClick={openCatalog}>{t('changeModel')}</button>
           </div>
-          {mode === 'one' && <Button onClick={requestGenerate} disabled={generateDisabled} aria-describedby={generateDisabled && generateDisabledReason ? 'if-generate-disabled-reason' : undefined} className="h-10 w-full gap-1.5 font-semibold">{activeJobId ? <Spinner /> : <Codicon name={lastResult ? 'refresh' : 'sparkle'} style={{ fontSize: 14 }} />}{activeJobId ? t('generating') : t('generateWith', { model: modelInfo?.display || model || '…' })}</Button>}
+          {mode === 'one' && <Button onClick={requestGenerate} disabled={generateDisabled} aria-describedby={generateDisabled && generateDisabledReason ? 'if-generate-disabled-reason' : undefined} className="h-10 w-full gap-1.5 font-semibold">{jobRunning ? <Spinner /> : <Codicon name={lastResult ? 'refresh' : 'sparkle'} style={{ fontSize: 14 }} />}{jobRunning ? t('generating') : t('generateWith', { model: modelInfo?.display || model || '…' })}</Button>}
           {mode === 'one' && generateDisabled && generateDisabledReason && <p id="if-generate-disabled-reason" className="text-[10.5px] text-(--ui-text-tertiary)">{generateDisabledReason}</p>}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-(--ui-text-tertiary)">
             {budgetLimit !== null && <span className="tabular-nums">{t('budgetUsage', { spent: formatUsd(spentThisMonth), limit: formatUsd(budgetLimit) })}</span>}
@@ -946,7 +964,7 @@ export function GenerateTab({
           </div>
         )}
         {accessNotice && (
-          <div className="if-access-notice" role="status">
+          <div ref={accessNoticeRef} className="if-access-notice" role="status">
             <Codicon name="lock" style={{ fontSize: 14 }} />
             <div><p>{t('accessNeeded', { provider: accessNotice })}</p></div>
             {onOpenSettings && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onOpenSettings}>{t('accessConfigure')}</Button>}
@@ -1004,7 +1022,7 @@ export function GenerateTab({
         )}
         {pendingAction && <PreGenSummary action={pendingAction} onConfirm={() => void startGenerate()} onCancel={() => setPendingAction(null)} modelLabel={modelInfo?.display || model} promptPreview={aiEnabled && preview ? preview.result : prompt} refCount={refs.length} aspectRatio={aiEnabled && preview ? preview.effective.aspectRatio : config.aspectRatio} warnings={alerts.warnings.length} skipConfirm={skipConfirm} onSkipChange={setSkipConfirm} title={t('confirmGeneration')} optimizeTitle={t('optimizePrompt')} cancel={t('cancel')} generate={t('generate')} optimize={t('optimize')} dontAskAgain={t('dontAskAgain')} refsLabel={t('refsLabel')} warningsLabel={t('warnings')} cleanZones={config.cleanZones} cleanZonesSuppressed={cleanZonesSuppressed} />}
         {lastResult?.warnings?.map((warning) => <p key={warning} role="status" className="text-xs text-(--ui-yellow)">{warning}</p>)}
-        {activeJobId && <JobProgress jobId={activeJobId} modelLabel={modelInfo?.display || model} onJobReplaced={setActiveJobId} onDismiss={() => setActiveJobId(null)} onDone={onJobDone} />}
+        {activeJobId && <JobProgress jobId={activeJobId} modelLabel={modelInfo?.display || model} onJobReplaced={setActiveJobId} onDismiss={() => setActiveJobId(null)} onDone={onJobDone} onStatus={(job) => setEndedJobId(['failed', 'cancelled', 'interrupted'].includes(job.status) ? job.id : null)} />}
         {stageIsEmpty && (
           <div className="if-stage-empty">
             <div className="if-stage-frame" style={{ aspectRatio: config.aspectRatio.replace(':', ' / ') }}>
@@ -1018,7 +1036,7 @@ export function GenerateTab({
                 <div key={item.name} className="if-ready-row">
                   <Badge variant="outline" className="if-tag-ok">{t('ready.ok')}</Badge>
                   <strong>{item.display_name || item.name}</strong>
-                  <span>{isSubscription(item.name) ? t('ready.subscription') : t('ready.key')}</span>
+                  <span>{isSubscription(item.name) ? t('ready.subscription') : isLocal(item.name) ? t('ready.local') : t('ready.key')}</span>
                 </div>
               ))}
               {missingProviders.length > 0 && <div className="if-ready-row">
@@ -1049,9 +1067,10 @@ export function GenerateTab({
             <ResultGrid
               images={lastResult.images}
               onDownload={(image) => downloadFromUrl(image, `imagegen-${Date.now()}.png`)}
-              onVary={(image) => setVaryMenuFor(image)}
+              onVary={(image) => { if (!lacksAccess(actionNeeds.vary)) setVaryMenuFor(image) }}
               onUpscale={(image) => void doUpscale(image)}
-              upscaleLabel={providerReady(providers, upscaleProvider) ? `${t('upscale')} · ${upscaleProvider === 'magnific' ? 'Magnific' : 'FAL'}` : t('upscaleNeedsKey')}
+              upscaleLabel={actionNeeds.upscale ? undefined : `${t('upscale')} · ${upscaleProvider === 'magnific' ? 'Magnific' : 'FAL'}`}
+              locked={actionNeeds}
               varyLabel={t('variants')}
               extraActions={[
                 ...(lastResult.gallery_ids?.length ? [{ key: 'exportPack', icon: 'package', label: t('exportPack'), run: exportPack }] : []),
@@ -1099,7 +1118,7 @@ export function GenerateTab({
                 <Textarea value={refinedPrompt} rows={3} onChange={(event) => setRefinedPrompt(event.target.value)} />
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => { setFeedbackImage(null); setRefineDiagnosis(''); setRefinedPrompt('') }}>{t('cancel')}</Button>
-                  <Button size="sm" onClick={confirmRefinedGenerate} disabled={!refinedPrompt.trim() || !!activeJobId}>{t('generateWithPrompt')}</Button>
+                  <Button size="sm" onClick={confirmRefinedGenerate} disabled={!refinedPrompt.trim() || jobRunning}>{t('generateWithPrompt')}</Button>
                 </div>
               </div>
             )}

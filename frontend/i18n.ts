@@ -251,6 +251,14 @@ interface Messages {
   accessConfigure: string
   accessSubscription: string
   accessApiKey: string
+  accessLocal: string
+  accessUnlocksLocal: string
+  providerLocal: string
+  localAddressSettings: string
+  localNotAnswering: string
+  localTestOk: string
+  costLocal: string
+  'ready.local': string
   accessNone: string
   accessSubscriptionEdit: string
   editKeepUnchanged: string
@@ -604,6 +612,14 @@ const en: Messages = {
   accessConfigure: 'Set up access',
   accessSubscription: 'Subscription',
   accessApiKey: 'API key',
+  accessLocal: 'Local',
+  accessUnlocksLocal: 'Generates images on your own server, with no API key and no cost. It does not take references or edits yet.',
+  providerLocal: 'Local server',
+  localAddressSettings: 'Set address in Settings',
+  localNotAnswering: 'Server not answering',
+  localTestOk: 'The server answered. Models found: {n}',
+  costLocal: 'no cost, runs on your server',
+  'ready.local': 'on your own server',
   accessNone: 'no access',
   accessSubscriptionEdit: 'Your subscription does the other edits. Removing the background and upscaling need an API key.',
   editKeepUnchanged: 'Keep what did not change',
@@ -943,7 +959,9 @@ const en: Messages = {
   'example.neon.brief': 'Portrait of a woman with curly hair in a brown coat on a city street at night, pink and blue neon lights, wet pavement.',
   'example.watercolor.title': 'Watercolor illustration',
   'example.watercolor.brief': 'A red fox sitting among birch trees by a lake, soft spring light.',
-  upscaleNeedsKey: 'Upscale (needs FAL or Magnific)',
+  needsProvider: 'needs {provider}',
+  jobRetryRemaining: 'Generate remaining images',
+  jobRetryAgainPaid: 'Try again (paid)',
   newRequestTitle: 'Start a new request?',
   newRequestBody: 'The text, references, product and direction of this request are cleared. Your model and preferences stay. Past images stay in the gallery.',
   newRequestConfirm: 'Start new request',
@@ -1206,6 +1224,14 @@ const pt: Messages = {
   accessConfigure: 'Configurar acesso',
   accessSubscription: 'Assinatura',
   accessApiKey: 'Chave de API',
+  accessLocal: 'Local',
+  accessUnlocksLocal: 'Gera imagens no seu próprio servidor, sem chave de API e sem custo. Ainda não aceita referências nem edições.',
+  providerLocal: 'Servidor local',
+  localAddressSettings: 'Definir endereço nas Configurações',
+  localNotAnswering: 'Servidor não responde',
+  localTestOk: 'O servidor respondeu. Modelos encontrados: {n}',
+  costLocal: 'sem custo, roda no seu servidor',
+  'ready.local': 'no seu próprio servidor',
   accessNone: 'sem acesso',
   accessSubscriptionEdit: 'A sua assinatura faz as outras edições. Remover o fundo e ampliar precisam de chave de API.',
   editKeepUnchanged: 'Manter o que não mudou',
@@ -1545,7 +1571,9 @@ const pt: Messages = {
   'example.neon.brief': 'Retrato de uma mulher de cabelo cacheado e casaco marrom numa rua da cidade à noite, luzes neon rosa e azul, chão molhado.',
   'example.watercolor.title': 'Ilustração em aquarela',
   'example.watercolor.brief': 'Uma raposa vermelha sentada entre bétulas à beira de um lago, luz suave de primavera.',
-  upscaleNeedsKey: 'Ampliar resolução (precisa de FAL ou Magnific)',
+  needsProvider: 'precisa de {provider}',
+  jobRetryRemaining: 'Gerar imagens restantes',
+  jobRetryAgainPaid: 'Tentar novamente (pago)',
   newRequestTitle: 'Começar um novo pedido?',
   newRequestBody: 'O texto, as referências, o produto e a direção deste pedido são limpos. O modelo e suas preferências ficam. As imagens antigas continuam na galeria.',
   newRequestConfirm: 'Começar novo pedido',
@@ -1808,6 +1836,14 @@ const es: Messages = {
   accessConfigure: 'Configurar acceso',
   accessSubscription: 'Suscripción',
   accessApiKey: 'Clave de API',
+  accessLocal: 'Local',
+  accessUnlocksLocal: 'Genera imágenes en tu propio servidor, sin clave de API y sin coste. Aún no acepta referencias ni ediciones.',
+  providerLocal: 'Servidor local',
+  localAddressSettings: 'Definir dirección en Ajustes',
+  localNotAnswering: 'El servidor no responde',
+  localTestOk: 'El servidor respondió. Modelos encontrados: {n}',
+  costLocal: 'sin coste, se ejecuta en tu servidor',
+  'ready.local': 'en tu propio servidor',
   accessNone: 'sin acceso',
   accessSubscriptionEdit: 'Tu suscripción hace las demás ediciones. Quitar el fondo y ampliar necesitan una clave de API.',
   editKeepUnchanged: 'Mantener lo que no cambió',
@@ -2147,7 +2183,9 @@ const es: Messages = {
   'example.neon.brief': 'Retrato de una mujer de pelo rizado y abrigo marrón en una calle de la ciudad de noche, luces de neón rosas y azules, suelo mojado.',
   'example.watercolor.title': 'Ilustración en acuarela',
   'example.watercolor.brief': 'Un zorro rojo sentado entre abedules junto a un lago, luz suave de primavera.',
-  upscaleNeedsKey: 'Ampliar resolución (requiere FAL o Magnific)',
+  needsProvider: 'requiere {provider}',
+  jobRetryRemaining: 'Generar imágenes restantes',
+  jobRetryAgainPaid: 'Reintentar (de pago)',
   newRequestTitle: '¿Empezar un nuevo pedido?',
   newRequestBody: 'Se borran el texto, las referencias, el producto y la dirección de este pedido. El modelo y tus preferencias se mantienen. Las imágenes anteriores siguen en la galería.',
   newRequestConfirm: 'Empezar nuevo pedido',
@@ -2410,6 +2448,14 @@ const zh: Messages = {
   accessConfigure: '设置访问权限',
   accessSubscription: '订阅',
   accessApiKey: 'API 密钥',
+  accessLocal: '本地',
+  accessUnlocksLocal: '在你自己的服务器上生成图像，无需 API 密钥，也没有费用。暂不支持参考图和编辑。',
+  providerLocal: '本地服务器',
+  localAddressSettings: '在设置中填写地址',
+  localNotAnswering: '服务器无响应',
+  localTestOk: '服务器已响应，共 {n} 个模型',
+  costLocal: '无费用，在你的服务器上运行',
+  'ready.local': '在你自己的服务器上',
   accessNone: '无权限',
   accessSubscriptionEdit: '订阅可完成其他编辑。去背景和放大需要 API 密钥。',
   editKeepUnchanged: '保留未改变的部分',
@@ -2749,7 +2795,9 @@ const zh: Messages = {
   'example.neon.brief': '夜晚城市街头，一位卷发、身穿棕色外套的女性肖像，粉色和蓝色霓虹灯，潮湿的路面。',
   'example.watercolor.title': '水彩插画',
   'example.watercolor.brief': '湖边白桦林中坐着一只红狐狸，柔和的春日光线。',
-  upscaleNeedsKey: '提高分辨率（需要 FAL 或 Magnific）',
+  needsProvider: '需要 {provider}',
+  jobRetryRemaining: '生成剩余图像',
+  jobRetryAgainPaid: '重试（付费）',
   newRequestTitle: '开始新的请求？',
   newRequestBody: '此请求的文字、参考图、产品和方向将被清除。模型和你的偏好会保留。之前的图片仍在图库中。',
   newRequestConfirm: '开始新请求',

@@ -1,4 +1,4 @@
-import { jobFailureAdvice } from '../jobFailure'
+import { jobFailureAdvice, jobIsFree } from '../jobFailure'
 /**
  * ImageGen — result grid and job progress.
  */
@@ -31,7 +31,8 @@ export function ResultGrid({
   animateLabel,
   onNotGood,
   onAskAgent,
-  extraActions
+  extraActions,
+  locked
 }: {
   images: string[]
   onVary?: (img: string, i: number) => void
@@ -52,9 +53,13 @@ export function ResultGrid({
   onAskAgent?: (img: string) => void
   /** More-menu items beyond the built-in ones (export pack, copy prompt). */
   extraActions?: Array<{ key: string; icon: string; label: string; run: (img: string) => void }>
+  /** Actions that cannot run yet, each with the provider it needs. They show a lock and still answer the click. */
+  locked?: Partial<Record<'edit' | 'vary' | 'upscale' | 'removeBg', string>>
 }) {
   const t = useImageGenT()
   const [lightbox, setLightbox] = useState<number | null>(null)
+  const needs = (key: keyof NonNullable<typeof locked>) => locked?.[key] ? t('accessNeeded', { provider: locked[key] || '' }) : ''
+  const menuLabel = (key: keyof NonNullable<typeof locked>, label: string) => locked?.[key] ? `${label} · ${t('needsProvider', { provider: locked[key] || '' })}` : label
   const labels = {
     download: downloadLabel || t('download'),
     vary: varyLabel || t('vary'),
@@ -72,8 +77,8 @@ export function ResultGrid({
         // into a "more actions" menu so the overlay never exceeds the card width.
         const moreActions: Array<{ key: string; icon: string; label: string; run: () => void }> = [
           ...(onUseAsRef ? [{ key: 'useAsRef', icon: 'link', label: labels.useAsRef, run: () => onUseAsRef(img) }] : []),
-          ...(onUpscale ? [{ key: 'upscale', icon: 'zoom-in', label: labels.upscale, run: () => onUpscale(img) }] : []),
-          ...(onBgRemove ? [{ key: 'removeBg', icon: 'clear-all', label: labels.removeBg, run: () => onBgRemove(img) }] : []),
+          ...(onUpscale ? [{ key: 'upscale', icon: locked?.upscale ? 'lock' : 'zoom-in', label: menuLabel('upscale', labels.upscale), run: () => onUpscale(img) }] : []),
+          ...(onBgRemove ? [{ key: 'removeBg', icon: locked?.removeBg ? 'lock' : 'clear-all', label: menuLabel('removeBg', labels.removeBg), run: () => onBgRemove(img) }] : []),
           ...(onAnimate ? [{ key: 'animate', icon: 'play', label: labels.animate, run: () => onAnimate(img, i) }] : []),
           ...(onNotGood ? [{ key: 'notGood', icon: 'thumbsdown', label: t('notGood'), run: () => onNotGood(img) }] : []),
           ...(onAskAgent ? [{ key: 'askAgent', icon: 'comment-discussion', label: t('askAgent'), run: () => onAskAgent(img) }] : []),
@@ -89,8 +94,8 @@ export function ResultGrid({
             <button type="button" aria-label={name} className={cn('w-full', columns === 1 ? 'block' : 'h-full')} onClick={() => setLightbox(i)}><ServedImage src={img} alt={name} className={columns === 1 ? undefined : 'h-full w-full object-contain'} loading="lazy" /></button>
           </div>
           <div className="if-result-actions">
-            {onEdit && <Button size="sm" className="h-8 gap-1 text-xs" aria-label={`${labels.edit}, ${name}`} onClick={() => onEdit(img)}><Codicon name="edit" style={{ fontSize: 13 }} />{labels.edit}</Button>}
-            {onVary && <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" aria-label={`${labels.vary}, ${name}`} onClick={() => onVary(img, i)}><Codicon name="refresh" style={{ fontSize: 13 }} />{labels.vary}</Button>}
+            {onEdit && <Button size="sm" className="h-8 gap-1 text-xs" title={needs('edit') || undefined} aria-label={[labels.edit, name, needs('edit')].filter(Boolean).join(', ')} onClick={() => onEdit(img)}><Codicon name={locked?.edit ? 'lock' : 'edit'} style={{ fontSize: 13 }} />{labels.edit}</Button>}
+            {onVary && <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" title={needs('vary') || undefined} aria-label={[labels.vary, name, needs('vary')].filter(Boolean).join(', ')} onClick={() => onVary(img, i)}><Codicon name={locked?.vary ? 'lock' : 'refresh'} style={{ fontSize: 13 }} />{labels.vary}</Button>}
             {onDownload && <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" aria-label={`${labels.download}, ${name}`} onClick={() => onDownload(img, i)}><Codicon name="download" style={{ fontSize: 13 }} />{labels.download}</Button>}
             {moreActions.length > 0 && (
               <DropdownMenu>
@@ -127,10 +132,12 @@ export function ResultGrid({
 }
 
 /** Live job status with explicit recovery, retrieval, and paid retry actions. */
-export function JobProgress({ jobId, onDone, onDismiss, onJobReplaced, modelLabel, generatingLabel, failedLabel,
+export function JobProgress({ jobId, onDone, onStatus, onDismiss, onJobReplaced, modelLabel, generatingLabel, failedLabel,
   unknownError, gotIt, cancelledLabel, close, cancel, processing }: {
   jobId: string
   onDone?: (job: JobStatus) => void | Promise<void>
+  /** Every read of the job, so the screen around the panel knows when it stopped running. */
+  onStatus?: (job: JobStatus) => void
   onDismiss?: () => void
   onJobReplaced?: (id: string) => void
   modelLabel?: string
@@ -152,6 +159,8 @@ export function JobProgress({ jobId, onDone, onDismiss, onJobReplaced, modelLabe
   const [elapsed, setElapsed] = useState(0)
   const doneRef = useRef(onDone)
   doneRef.current = onDone
+  const statusRef = useRef(onStatus)
+  statusRef.current = onStatus
   const actionRef = useRef(false)
   useEffect(() => { setTrackedId(jobId) }, [jobId])
   useEffect(() => {
@@ -170,6 +179,7 @@ export function JobProgress({ jobId, onDone, onDismiss, onJobReplaced, modelLabe
         const current = await fetchJob(trackedId)
         if (!alive) return
         setJob(current)
+        statusRef.current?.(current)
         if (current.status === 'completed') {
           await doneRef.current?.(current)
           finished = true
@@ -220,6 +230,9 @@ export function JobProgress({ jobId, onDone, onDismiss, onJobReplaced, modelLabe
   const translatedError = job?.errorCode ? t(job.errorCode, errorArgs) : ''
   const advice = job && jobFailureAdvice(job)
   const detail = advice ? t(advice) : translatedError && translatedError !== job?.errorCode ? translatedError : job?.error || unknownError
+  // A retry sends only the images that are missing; with none delivered it is the whole request again.
+  const free = !!job && jobIsFree(job)
+  const retryLabel = job?.hasPartialResult ? t(free ? 'jobRetryRemaining' : 'jobRetryPaid') : t(free ? 'retry' : 'jobRetryAgainPaid')
 
   if (!job && !error) return <Skeleton className="h-16 w-full" />
   return <div role="status" aria-live="polite" className="rounded-xl border border-(--ui-stroke-secondary) p-3 space-y-2 if-fade-in">
@@ -245,7 +258,7 @@ export function JobProgress({ jobId, onDone, onDismiss, onJobReplaced, modelLabe
         const next = await retryJob(trackedId)
         setTrackedId(next.id)
         onJobReplaced?.(next.id)
-      })}>{t('jobRetryPaid')}</Button>}
+      })}>{retryLabel}</Button>}
       {terminal && job && <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(async () => { await doneRef.current?.(job) })}>{job.hasPartialResult ? t('jobViewResult') : gotIt || close || t('close')}</Button>}
       {job && !terminal && job.status !== 'recovering' && <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(async () => {
         if (!(await cancelJob(trackedId)).ok) throw new Error(t('jobFailed'))

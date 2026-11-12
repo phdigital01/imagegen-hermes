@@ -127,6 +127,7 @@ def _list_providers() -> List[Dict[str, Any]]:
     _merge_fal_catalog(out)
     out.append(_magnific_provider_entry())
     out.append(_vertex_provider_entry())
+    out.append(_local_provider_entry())
     # Single source of truth: capabilities per (provider, model) resolved by
     # the capabilities module — covers even the Hermes-registered providers
     # (openai/xai/krea/openrouter/openai-codex/deepinfra) whose plugins do NOT
@@ -234,6 +235,28 @@ def _vertex_provider_entry() -> Dict[str, Any]:
              "aspectRatios": list(spec["aspectRatios"]), "resolutionOptions": list(spec["resolutions"]),
              "supportsSeed": False, "capabilities": {"max_reference_images": spec["maxReferences"]}}
             for model, spec in vertex_api.MODELS.items()
+        ],
+    }
+
+
+def _local_provider_entry() -> Dict[str, Any]:
+    """Models of the image server at the address in the plugin settings; no key and no price.
+
+    ``configured`` says an address is set; ``available`` says the server answered with models.
+    """
+    from imagegen_engine import local_api
+
+    models = local_api.models()
+    return {
+        "name": local_api.PROVIDER,
+        "display_name": "Local server",
+        "configured": local_api.available(),
+        "available": bool(models),
+        "models": [
+            {"id": model, "display": model, "strengths": "Runs on your own server, no API key",
+             "aspectRatios": list(local_api.ASPECT_RATIOS), "resolutionOptions": list(local_api.RESOLUTIONS),
+             "supportsSeed": False}
+            for model in models
         ],
     }
 

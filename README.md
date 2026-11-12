@@ -7,7 +7,7 @@ restyle, cut out and run campaigns from one place, and keep every result in one 
 Use the ChatGPT subscription you already pay for, or any API key your Hermes profile has.
 
 - **All your models in one form.** GPT Image on your subscription, FAL, Nous Portal,
-  Magnific, Vertex AI and the Hermes image providers. The form applies each model's real
+  Magnific, Vertex AI, the Hermes image providers and an image server on your own machine. The form applies each model's real
   limits, and Settings says what each provider can do.
 - **Direct with pictures, not jargon.** Style, light, angle, framing and camera are
   a row of chips. Open one to pick from photos of the same scene with that one change.
@@ -30,6 +30,9 @@ Use the ChatGPT subscription you already pay for, or any API key your Hermes pro
   (OpenAI, Grok, Krea, DeepInfra, OpenRouter) from one form, with each model's
   real limits applied (references, sizes, seeds). FAL's whole public catalog
   is listed and kept up to date, so new FAL models appear without an update.
+- **Run local models**: set the address of an image server on your own machine
+  (stable-diffusion.cpp, LocalAI, Ollama) and generate from text with no API key
+  and no cost.
 - **Reserve space for text**: mark the areas of the image to keep clear for a
   title or price.
 - **Compose** from reference images: the active Hermes model reads them and
@@ -106,7 +109,7 @@ at once. Each image is billed by its provider. Details are in
 ## Providers and keys
 
 ImageGen reuses what your Hermes profile already has. A Nous Portal
-subscription and the Hermes image providers need no extra setup. These keys are
+subscription and the Hermes image providers need no extra setup. These settings are
 optional and live in **Settings → Plugins → ImageGen**:
 
 | Setting | Variable | Enables |
@@ -115,8 +118,10 @@ optional and live in **Settings → Plugins → ImageGen**:
 | Magnific API key | `MAGNIFIC_API_KEY` | Magnific generation, upscale, relight and background removal |
 | Vertex AI API key | `VERTEX_API_KEY` | Gemini image generation on Google Cloud Vertex AI |
 | Vertex AI project ID | `VERTEX_PROJECT` | The project for a key bound to a service account |
+| Local server address | none | Text-to-image on your own image server, such as `http://127.0.0.1:1234`, with no key and no cost. See [Local server](docs/manual/providers.md#local-server) |
+| Local server token | `IMAGEGEN_LOCAL_SERVER_KEY` | Only for a local server that asks for a bearer token |
 
-The plugin reads them through the Hermes secret store and never opens or writes
+The plugin reads the keys through the Hermes secret store and never opens or writes
 `.env` files itself, the command line included.
 
 The same settings page has two limits, **Gallery limit** and **History limit**
@@ -139,7 +144,7 @@ Read this before you install.
   **Tools → Image Generation** (then each `image_generate` call goes through
   ImageGen) or register the optional MCP server below. The local monthly budget uses ImageGen's own
   estimates. It is not a provider invoice. Unknown prices are blocked while a
-  limit is set.
+  limit is set. A local server costs nothing, so the limit never blocks it.
 - **Network calls.** Prompts and reference images go to the provider you pick:
   `queue.fal.run` and `fal.run` (FAL, including reference uploads),
   `api.magnific.com` (Magnific), `aiplatform.googleapis.com` (Vertex AI), or the endpoint
@@ -147,7 +152,9 @@ Read this before you install.
   through that Hermes provider, so ImageGen never sees its sign-in token. Prompt
   writing and image reading go to your
   active Hermes model. Once a day ImageGen also reads FAL's public model list
-  from `api.fal.ai` (no prompts or images are sent).
+  from `api.fal.ai` (no prompts or images are sent). With a local server
+  address set, prompts for its models go straight to that address, with no
+  proxy, and ImageGen asks it for its model list at most once a minute.
 - **Local data.** Images, gallery, history, recipes, jobs and the spending
   ledger are stored in `$HERMES_HOME/plugin-data/imagegen/`. You can also set
   an export folder. Clearing data in the plugin asks for confirmation.

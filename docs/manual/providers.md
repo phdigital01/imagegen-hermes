@@ -57,7 +57,7 @@ background.
 | Remove background | no | no | no | no | yes | yes |
 | Upscale | no | no | no | no | yes | yes |
 
-Prompt helpers use the main Hermes model, so they need no image provider.
+A local server generates from text only. Prompt helpers use the main Hermes model, so they need no image provider.
 On Grok, the light request also recolored objects and the camera request bent
 straight lines. Vertex limits requests per minute: several at once may answer 429.
 
@@ -76,6 +76,47 @@ express-mode key does not. Each model keeps its own limits: up to 14 references,
 1K only). Seeds and negative prompts are not supported. The local budget
 counts an estimate per image from Google's published prices; the Google Cloud
 bill is the real cost.
+
+## Local server
+
+ImageGen can generate on an image server that runs on your own computer or
+network, with no API key and no cost. The server must answer the OpenAI images
+API (`GET /v1/models` and `POST /v1/images/generations`): stable-diffusion.cpp
+`sd-server`, LocalAI and Ollama 0.14 or later do. It was measured with
+stable-diffusion.cpp.
+
+1. Start the server and note its address, for example `http://127.0.0.1:1234`.
+2. Fill **Local server address** in **Settings → Plugins → ImageGen**. Fill
+   **Local server token** only when the server asks for a bearer token.
+3. In ImageGen's settings, press **Test connection** on **Local server**. It
+   says how many models the server reported.
+
+The model list is what the server reports, read again about once a minute.
+ImageGen shows every id in it, so a server that also runs text models lists them
+too: pick an image model. While the server does not answer, the provider shows
+**Server not answering** and its models leave the picker.
+
+- Text to image only. A local model takes no references, edits, negative prompt
+  or seed from ImageGen. A reference is refused with a message, never dropped.
+- Sizes are 512px, 768px, 1K and 2K on the longest side, with both sides in
+  multiples of 64. Pick the size the model was trained for: 512px for Stable
+  Diffusion 1.5, 1K for SDXL and FLUX.
+- The first image after the server starts can take minutes while the model
+  loads. ImageGen waits up to 30 minutes for one image and never sends the
+  request a second time.
+- stable-diffusion.cpp repeats the same image for the same prompt unless it
+  starts with a random seed:
+
+  ```text
+  sd-server -m <model file> --listen-port 1234 --seed -1
+  ```
+
+- Prompts go only to the address you set. ImageGen uses no proxy for it,
+  follows no redirect, and reads an image link only from that same address.
+- A local image costs nothing in the local budget, so an active monthly limit
+  never blocks it.
+- The agent can use it too: pick ImageGen under **Tools → Image Generation**.
+  When the local server is the only provider connected, its first model is used.
 
 ## Jobs, editing, and local accounting
 

@@ -8,6 +8,7 @@ import './imagegen.css'
 import { Codicon, cn, Dialog, DialogContent, DialogHeader, DialogTitle, host, queryClient, ROUTES_AREA, SIDEBAR_NAV_AREA, PALETTE_AREA, STATUSBAR_AREAS, TRANSCRIPT_DIRECTIVE_AREA, useI18n, useQuery, type HermesPlugin } from '@hermes/plugin-sdk'
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 
+import { providerLabel } from './access'
 import type { ImageGenConfig, JobResult } from './types'
 import { ID, bindApi, invalidateFeed, invalidateGallery, fetchLibrary, fetchPresets, fetchProviderStatus, fetchProviders, getStored, setStored, promptText } from './api'
 import { emitJobChanged, type JobChange } from './jobEvents'
@@ -87,9 +88,10 @@ function ImageGenPage() {
     const statuses = providerStatusQuery.data || []
     return (providersQuery.data || []).map((provider) => {
       const status = statuses.find((item) => item.name === provider.name)
-      return status ? { ...provider, configured: status.configured, available: status.available } : provider
+      const named = { ...provider, display_name: providerLabel(t, provider) }
+      return status ? { ...named, configured: status.configured, available: status.available } : named
     })
-  }, [providerStatusQuery.data, providersQuery.data])
+  }, [providerStatusQuery.data, providersQuery.data, t])
   const library = libraryQuery.data || []
 
 

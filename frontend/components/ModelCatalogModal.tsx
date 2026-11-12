@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react'
 import type { Provider, ProviderModel } from '../types'
 import { cn } from '@hermes/plugin-sdk'
 import { useImageGenT } from '../i18n'
-import { isSubscription, providerReady } from '../access'
+import { accessLabelKey, providerReady } from '../access'
 
 export function ModelCatalogModal({
   open,
@@ -54,7 +54,7 @@ export function ModelCatalogModal({
             >
               {providers.map((item) => (
                 <option key={item.name} value={item.name}>
-                  {(item.configured && item.available !== false ? '● ' : '○ ')}{item.display_name || item.name} · {t(isSubscription(item.name) ? 'accessSubscription' : 'accessApiKey')}
+                  {(item.configured && item.available !== false ? '● ' : '○ ')}{item.display_name || item.name} · {t(accessLabelKey(item.name))}
                 </option>
               ))}
             </select>

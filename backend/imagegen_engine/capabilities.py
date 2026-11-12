@@ -6,6 +6,7 @@ generation pipeline and the frontend never disagree about what a model can do.
 
 Resolution order (per provider family):
 - ``magnific``   → per-model direct API contracts from magnific_catalog.
+- ``local``      → text only: the local server route sends a prompt and a size.
 - ``fal`` and Nous Portal catalog models → the host ``FAL_MODELS`` entry
   (``edit_endpoint`` ⇒ edit; ``max_reference_images`` ⇒ maxReferences).
 - Registered providers (openai, openai-codex, xai, krea, openrouter,
@@ -166,6 +167,11 @@ def resolve_capabilities(
             spec = vertex_api.MODELS.get(model, {})
             max_refs = spec.get("maxReferences", 0)
             extra = {"edit": bool(max_refs), "negativeMode": "unsupported", "resolutions": list(spec.get("resolutions", ()))}
+        elif provider == "local":
+            # The OpenAI images API takes a prompt and a size; references wait for the A1111 API.
+            from imagegen_engine import local_api
+            max_refs = 0
+            extra = {"edit": False, "negativeMode": "unsupported", "resolutions": list(local_api.RESOLUTIONS)}
         elif provider in ("fal", "nous"):
             fal_meta = get_fal_model_meta(model)
             if fal_meta:

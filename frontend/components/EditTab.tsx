@@ -3,7 +3,7 @@ import { Button, Codicon, Input, Textarea, cn, useQuery } from '@hermes/plugin-s
 import { useEffect, useRef, useState } from 'react'
 import type { EditMode, ImageGenConfig, Provider } from '../types'
 import { ID, fetchFalModel, fetchImageDataUrl, isPluginImageUrl, invalidateGallery, rest, queryJobResult, getStored, setStored } from '../api'
-import { isSubscription, providerReady } from '../access'
+import { editEngines, isSubscription, providerReady } from '../access'
 import { useImageGenT } from '../i18n'
 import { ServedImage, fileToDataUrl, newId, Spinner, downloadFromUrl, urlToDataUrl } from './ui-helpers'
 import { MaskCanvas, type MaskCanvasApi } from './MaskCanvas'
@@ -83,8 +83,7 @@ export function EditTab({
   const [expandPx, setExpandPx] = useState(256)
   const falReady = providerReady(providers, 'fal')
   const magnificReady = providerReady(providers, 'magnific')
-  const referenceEngines = providers.filter((item) => item.name !== 'fal' && item.name !== 'magnific'
-    && providerReady(providers, item.name) && item.models.some((model) => (model.capabilities?.maxReferences || 0) > 0))
+  const referenceEngines = editEngines(providers)
   const referenceMode = REFERENCE_MODES.includes(mode)
   const [pickedEngine, setEngine] = useState(config.provider)
   const falFits = falReady && !MAGNIFIC_ONLY.includes(mode)
